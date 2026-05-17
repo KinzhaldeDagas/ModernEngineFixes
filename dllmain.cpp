@@ -12,7 +12,7 @@ namespace
 	typedef unsigned int UInt32;
 	typedef int SInt32;
 
-	static const UInt32 kPluginVersion = 8;
+	static const UInt32 kPluginVersion = 15;
 	static const UInt32 kPluginInfoVersion = 2;
 	static const UInt32 kOblivionVersion_1_2_0_416 = 0x010201A0;
 
@@ -20,6 +20,10 @@ namespace
 	static const UInt32 kMainThreadHandleContinueSite = 0x00404A68;
 	static const UInt32 kBinkOpenThreadHandleUseDecodeAddr = 0x00410229;
 	static const UInt32 kBinkOpenResumeThreadUseDecodeAddr = 0x0041028E;
+
+	static const UInt32 kRendererInitFailurePatchSite = 0x004983C0;
+	static const UInt32 kRendererInitFailureContinueSite = 0x004983C5;
+	static const UInt32 kRendererInitFailureReturnSite = 0x00498E7D;
 
 	static const UInt32 kTexturePaletteUnderscorePatchSite = 0x004A26F7;
 	static const UInt32 kTexturePaletteContinueSite = 0x004A26FE;
@@ -29,6 +33,7 @@ namespace
 	static const UInt32 kLoadingTextureWaitContinueSite = 0x00410A49;
 	static const UInt32 kLoadingTextureWaitPumpAddr = 0x00410390;
 	static const UInt32 kLoadingTextureWaitSecondsAddr = 0x00B030AC;
+	static const float kStaticLoadingScreenWaitScale = 0.70f;
 
 	static const UInt32 kLoadGameStartTickPatchSite = 0x00459A43;
 	static const UInt32 kLoadGameStartTickElapsedSite = 0x00459A63;
@@ -65,6 +70,14 @@ namespace
 	static const float kActorAnimRebaseStep = 2048.0f;
 	static const float kSentinelMagnitude = 1.0e30f;
 
+	static const UInt32 kActorGetAttackedPatchSite = 0x005E58C0;
+	static const UInt32 kActorGetAttackedContinueSite = 0x005E58C5;
+	static const UInt32 kActorAdjacentProcessGuardDecodeAddr = 0x005E58D0;
+	static const UInt32 kActorIsTalkingPatchSite = 0x005E0E62;
+	static const UInt32 kActorIsTalkingContinueSite = 0x005E0E67;
+	static const UInt32 kActorIsTalkingReturnSite = 0x005E0E70;
+	static const UInt32 kActorIsTalkingAdjacentGuardDecodeAddr = 0x005E0E80;
+
 	static HMODULE s_module = NULL;
 	static HANDLE s_log = INVALID_HANDLE_VALUE;
 	static bool s_patchInstalled = false;
@@ -82,6 +95,27 @@ namespace
 		kGlobalAnimTimerLoadPatchMismatch = 0,
 		kGlobalAnimTimerLoadPatchNeedsInstall,
 		kGlobalAnimTimerLoadPatchAlreadyGuarded
+	};
+
+	enum RendererInitFailurePatchState
+	{
+		kRendererInitFailurePatchMismatch = 0,
+		kRendererInitFailurePatchNeedsInstall,
+		kRendererInitFailurePatchAlreadyGuarded
+	};
+
+	enum ActorGetAttackedPatchState
+	{
+		kActorGetAttackedPatchMismatch = 0,
+		kActorGetAttackedPatchNeedsInstall,
+		kActorGetAttackedPatchAlreadyGuarded
+	};
+
+	enum ActorIsTalkingPatchState
+	{
+		kActorIsTalkingPatchMismatch = 0,
+		kActorIsTalkingPatchNeedsInstall,
+		kActorIsTalkingPatchAlreadyGuarded
 	};
 
 	static const UInt8 kMainThreadHandleExpectedBytes[] =
@@ -294,6 +328,46 @@ namespace
 		0xFF, 0x15, 0xF0, 0x80, 0xA2
 	};
 
+	static const UInt8 kRendererInitFailureExpectedBytes[] =
+	{
+		0x83, 0xCD, 0xFF,
+		0x33, 0xDB
+	};
+
+	static const UInt8 kActorGetAttackedExpectedBytes[] =
+	{
+		0x8B, 0x49, 0x58,
+		0x8B, 0x01
+	};
+
+	static const UInt8 kActorAdjacentProcessGuardExpectedBytes[] =
+	{
+		0x8B, 0x49, 0x58,
+		0x85, 0xC9,
+		0x74, 0x0A,
+		0x8B, 0x01,
+		0x8B, 0x80, 0x9C, 0x03, 0x00, 0x00,
+		0xFF, 0xE0
+	};
+
+	static const UInt8 kActorIsTalkingExpectedBytes[] =
+	{
+		0x8B, 0x48, 0x58,
+		0x8B, 0x11
+	};
+
+	static const UInt8 kActorIsTalkingAdjacentGuardExpectedBytes[] =
+	{
+		0x83, 0x79, 0x58, 0x00,
+		0x74, 0x0D,
+		0x8B, 0x49, 0x58,
+		0x8B, 0x01,
+		0x8B, 0x90, 0x88, 0x03, 0x00, 0x00,
+		0xFF, 0xE2,
+		0x32, 0xC0,
+		0xC3
+	};
+
 	struct OBSEInterface
 	{
 		UInt32 obseVersion;
@@ -313,24 +387,32 @@ namespace
 		UInt32 version;
 	};
 
+	static bool GetModuleSiblingPath(const char* extension, char* path, UInt32 pathSize)
+	{
+		if (!path || !pathSize)
+			return false;
+
+		path[0] = 0;
+		if (!GetModuleFileNameA(s_module, path, pathSize))
+			return false;
+
+		char* dot = std::strrchr(path, '.');
+		if (dot)
+			strcpy_s(dot, pathSize - (dot - path), extension);
+		else
+			strncat_s(path, pathSize, extension, _TRUNCATE);
+
+		return true;
+	}
+
 	static void OpenLog()
 	{
 		if (s_log != INVALID_HANDLE_VALUE)
 			return;
 
-		char dllPath[MAX_PATH] = { 0 };
 		char logPath[MAX_PATH] = { 0 };
 
-		if (GetModuleFileNameA(s_module, dllPath, sizeof(dllPath)))
-		{
-			strncpy_s(logPath, sizeof(logPath), dllPath, _TRUNCATE);
-			char* dot = std::strrchr(logPath, '.');
-			if (dot)
-				strcpy_s(dot, sizeof(logPath) - (dot - logPath), ".log");
-			else
-				strncat_s(logPath, sizeof(logPath), ".log", _TRUNCATE);
-		}
-		else
+		if (!GetModuleSiblingPath(".log", logPath, sizeof(logPath)))
 		{
 			strncpy_s(logPath, sizeof(logPath), "Modern Engine Fixes.log", _TRUNCATE);
 		}
@@ -649,6 +731,332 @@ namespace
 		return kGlobalAnimTimerLoadPatchMismatch;
 	}
 
+	static bool InlineTransferTargets(UInt32 base, const UInt8* code, UInt32 length, UInt32 target)
+	{
+		for (UInt32 i = 0; i < length; i++)
+		{
+			if (i + 6 <= length && code[i] == 0xFF && code[i + 1] == 0x25)
+			{
+				UInt32 pointer = *(const UInt32*)(code + i + 2);
+				if (CanReadMemory(pointer, 4) && *(const UInt32*)pointer == target)
+					return true;
+			}
+
+			if (i + 6 <= length && code[i] == 0x68 && code[i + 5] == 0xC3 &&
+				*(const UInt32*)(code + i + 1) == target)
+			{
+				return true;
+			}
+
+			if (i + 5 <= length && code[i] == 0xE9)
+			{
+				UInt32 destination = base + i + 5 + *(const SInt32*)(code + i + 1);
+				if (destination == target)
+					return true;
+			}
+		}
+
+		return false;
+	}
+
+	static bool IsExistingRendererInitFailureHook(UInt32 hook)
+	{
+		static const UInt32 kScanLength = 32;
+
+		if (!CanReadMemory(hook, kScanLength))
+			return false;
+
+		const UInt8* code = (const UInt8*)hook;
+		if (code[0] != 0x84 || code[1] != 0xC0 || code[2] != 0x75)
+			return false;
+
+		bool hasOriginalResumeBytes = false;
+		for (UInt32 i = 0; i + sizeof(kRendererInitFailureExpectedBytes) <= kScanLength; i++)
+		{
+			if (BytesMatch(hook + i,
+					kRendererInitFailureExpectedBytes,
+					sizeof(kRendererInitFailureExpectedBytes)))
+			{
+				hasOriginalResumeBytes = true;
+				break;
+			}
+		}
+
+		return hasOriginalResumeBytes &&
+			InlineTransferTargets(hook, code, kScanLength, kRendererInitFailureReturnSite) &&
+			InlineTransferTargets(hook, code, kScanLength, kRendererInitFailureContinueSite);
+	}
+
+	static RendererInitFailurePatchState GetRendererInitFailurePatchState()
+	{
+		if (BytesMatch(kRendererInitFailurePatchSite,
+				kRendererInitFailureExpectedBytes,
+				sizeof(kRendererInitFailureExpectedBytes)))
+		{
+			return kRendererInitFailurePatchNeedsInstall;
+		}
+
+		const UInt8* site = (const UInt8*)kRendererInitFailurePatchSite;
+		if (site[0] == 0xE9)
+		{
+			UInt32 target = kRendererInitFailurePatchSite + 5 + *(const SInt32*)(site + 1);
+			if (IsExistingRendererInitFailureHook(target))
+			{
+				Log("renderer initialization failure guard already present at %08X via jump target %08X",
+					kRendererInitFailurePatchSite,
+					target);
+				return kRendererInitFailurePatchAlreadyGuarded;
+			}
+		}
+
+		char expectedText[128];
+		char actualText[128];
+		FormatBytes(kRendererInitFailureExpectedBytes,
+			sizeof(kRendererInitFailureExpectedBytes),
+			expectedText,
+			sizeof(expectedText));
+		FormatBytes(site,
+			sizeof(kRendererInitFailureExpectedBytes),
+			actualText,
+			sizeof(actualText));
+
+		Log("refusing to patch: unexpected renderer initialization failure guard bytes at %08X; expected [%s], actual [%s]",
+			kRendererInitFailurePatchSite,
+			expectedText,
+			actualText);
+		return kRendererInitFailurePatchMismatch;
+	}
+
+	static bool IsExistingActorGetAttackedProcessGuard(UInt32 hook)
+	{
+		static const UInt32 kScanLength = 96;
+
+		if (!CanReadMemory(hook, kScanLength))
+			return false;
+
+		const UInt8* code = (const UInt8*)hook;
+		bool loadsProcessAndChecksNull =
+			code[0] == 0x8B &&
+			code[1] == 0x41 &&
+			code[2] == 0x58 &&
+			code[3] == 0x85 &&
+			code[4] == 0xC0 &&
+			code[5] == 0x74;
+
+		if (!loadsProcessAndChecksNull)
+			return false;
+
+		bool hasOriginalCallSetup = false;
+		for (UInt32 i = 0; i + 10 <= kScanLength; i++)
+		{
+			if (code[i] == 0x8B &&
+				code[i + 1] == 0xC8 &&
+				code[i + 2] == 0x8B &&
+				code[i + 3] == 0x00 &&
+				code[i + 4] == 0x8B &&
+				code[i + 5] == 0x90 &&
+				*(const UInt32*)(code + i + 6) == 0x00000398)
+			{
+				hasOriginalCallSetup = true;
+				break;
+			}
+		}
+
+		bool returnsFalseOnNull = false;
+		for (UInt32 i = 0; i + 3 <= kScanLength; i++)
+		{
+			if ((code[i] == 0x33 && code[i + 1] == 0xC0 && code[i + 2] == 0xC3) ||
+				(code[i] == 0x32 && code[i + 1] == 0xC0 && code[i + 2] == 0xC3))
+			{
+				returnsFalseOnNull = true;
+				break;
+			}
+		}
+
+		return hasOriginalCallSetup && returnsFalseOnNull;
+	}
+
+	static ActorGetAttackedPatchState GetActorGetAttackedPatchState()
+	{
+		if (BytesMatch(kActorGetAttackedPatchSite,
+				kActorGetAttackedExpectedBytes,
+				sizeof(kActorGetAttackedExpectedBytes)))
+		{
+			return kActorGetAttackedPatchNeedsInstall;
+		}
+
+		const UInt8* site = (const UInt8*)kActorGetAttackedPatchSite;
+		if (site[0] == 0xE9)
+		{
+			UInt32 target = kActorGetAttackedPatchSite + 5 + *(const SInt32*)(site + 1);
+			if (IsExistingActorGetAttackedProcessGuard(target))
+			{
+				Log("Actor::GetAttacked process null guard already present at %08X via jump target %08X",
+					kActorGetAttackedPatchSite,
+					target);
+				return kActorGetAttackedPatchAlreadyGuarded;
+			}
+		}
+
+		char expectedText[128];
+		char actualText[128];
+		FormatBytes(kActorGetAttackedExpectedBytes,
+			sizeof(kActorGetAttackedExpectedBytes),
+			expectedText,
+			sizeof(expectedText));
+		FormatBytes(site,
+			sizeof(kActorGetAttackedExpectedBytes),
+			actualText,
+			sizeof(actualText));
+
+		Log("refusing to patch: unexpected Actor::GetAttacked process guard bytes at %08X; expected [%s], actual [%s]",
+			kActorGetAttackedPatchSite,
+			expectedText,
+			actualText);
+		return kActorGetAttackedPatchMismatch;
+	}
+
+	static bool IsExistingActorIsTalkingProcessGuard(UInt32 hook)
+	{
+		static const UInt32 kScanLength = 96;
+
+		if (!CanReadMemory(hook, kScanLength))
+			return false;
+
+		const UInt8* code = (const UInt8*)hook;
+		bool loadsProcessAndChecksNull =
+			code[0] == 0x8B &&
+			code[1] == 0x48 &&
+			code[2] == 0x58 &&
+			code[3] == 0x85 &&
+			code[4] == 0xC9 &&
+			code[5] == 0x74;
+
+		if (!loadsProcessAndChecksNull)
+			return false;
+
+		bool hasOriginalCallSetup = false;
+		for (UInt32 i = 0; i + 2 <= kScanLength; i++)
+		{
+			if (code[i] == 0x8B && code[i + 1] == 0x11)
+			{
+				hasOriginalCallSetup = true;
+				break;
+			}
+		}
+
+		bool returnsFalseOnNull = false;
+		for (UInt32 i = 0; i + 2 <= kScanLength; i++)
+		{
+			if ((code[i] == 0x33 && code[i + 1] == 0xC0) ||
+				(code[i] == 0x32 && code[i + 1] == 0xC0))
+			{
+				returnsFalseOnNull = true;
+				break;
+			}
+		}
+
+		return hasOriginalCallSetup &&
+			returnsFalseOnNull &&
+			InlineTransferTargets(hook, code, kScanLength, kActorIsTalkingContinueSite) &&
+			InlineTransferTargets(hook, code, kScanLength, kActorIsTalkingReturnSite);
+	}
+
+	static ActorIsTalkingPatchState GetActorIsTalkingPatchState()
+	{
+		if (BytesMatch(kActorIsTalkingPatchSite,
+				kActorIsTalkingExpectedBytes,
+				sizeof(kActorIsTalkingExpectedBytes)))
+		{
+			return kActorIsTalkingPatchNeedsInstall;
+		}
+
+		const UInt8* site = (const UInt8*)kActorIsTalkingPatchSite;
+		if (site[0] == 0xE9)
+		{
+			UInt32 target = kActorIsTalkingPatchSite + 5 + *(const SInt32*)(site + 1);
+			if (IsExistingActorIsTalkingProcessGuard(target))
+			{
+				Log("Actor::IsTalking process null guard already present at %08X via jump target %08X",
+					kActorIsTalkingPatchSite,
+					target);
+				return kActorIsTalkingPatchAlreadyGuarded;
+			}
+		}
+
+		char expectedText[128];
+		char actualText[128];
+		FormatBytes(kActorIsTalkingExpectedBytes,
+			sizeof(kActorIsTalkingExpectedBytes),
+			expectedText,
+			sizeof(expectedText));
+		FormatBytes(site,
+			sizeof(kActorIsTalkingExpectedBytes),
+			actualText,
+			sizeof(actualText));
+
+		Log("refusing to patch: unexpected Actor::IsTalking process guard bytes at %08X; expected [%s], actual [%s]",
+			kActorIsTalkingPatchSite,
+			expectedText,
+			actualText);
+		return kActorIsTalkingPatchMismatch;
+	}
+
+	static __declspec(naked) void RendererInitFailurePatch()
+	{
+		__asm
+		{
+			test	al, al
+			jnz		rendererModeOk
+
+			push	00498E7Dh
+			ret
+
+		rendererModeOk:
+			or		ebp, 0FFFFFFFFh
+			xor		ebx, ebx
+			push	004983C5h
+			ret
+		}
+	}
+
+	static __declspec(naked) void ActorGetAttackedProcessGuardPatch()
+	{
+		__asm
+		{
+			mov		ecx, [ecx + 58h]
+			test	ecx, ecx
+			jz		noProcess
+
+			mov		eax, [ecx]
+			push	005E58C5h
+			ret
+
+		noProcess:
+			xor		eax, eax
+			ret
+		}
+	}
+
+	static __declspec(naked) void ActorIsTalkingProcessGuardPatch()
+	{
+		__asm
+		{
+			mov		ecx, [eax + 58h]
+			test	ecx, ecx
+			jz		noProcess
+
+			mov		edx, [ecx]
+			push	005E0E67h
+			ret
+
+		noProcess:
+			xor		al, al
+			push	005E0E70h
+			ret
+		}
+	}
+
 	static __declspec(naked) void TexturePaletteUnderscorePatch()
 	{
 		__asm
@@ -734,7 +1142,8 @@ namespace
 
 	static void __cdecl LoadingTextureWaitPatch()
 	{
-		float seconds = *(float*)kLoadingTextureWaitSecondsAddr;
+		float seconds = *(float*)kLoadingTextureWaitSecondsAddr * kStaticLoadingScreenWaitScale;
+
 		double milliseconds = (double)seconds * 1000.0;
 		if (!(milliseconds > 0.0) || milliseconds >= 2147483647.0)
 			return;
@@ -953,7 +1362,15 @@ namespace
 			ValidateDecodeBytes("NiControllerSequence update",
 				kNiControllerSequenceUpdateAddr,
 				kNiControllerSequenceUpdateExpectedBytes,
-				sizeof(kNiControllerSequenceUpdateExpectedBytes));
+				sizeof(kNiControllerSequenceUpdateExpectedBytes)) &&
+			ValidateDecodeBytes("Actor adjacent process guard",
+				kActorAdjacentProcessGuardDecodeAddr,
+				kActorAdjacentProcessGuardExpectedBytes,
+				sizeof(kActorAdjacentProcessGuardExpectedBytes)) &&
+			ValidateDecodeBytes("Actor::IsTalking adjacent process guard",
+				kActorIsTalkingAdjacentGuardDecodeAddr,
+				kActorIsTalkingAdjacentGuardExpectedBytes,
+				sizeof(kActorIsTalkingAdjacentGuardExpectedBytes));
 	}
 
 	static bool InstallPatches()
@@ -967,6 +1384,18 @@ namespace
 
 		GlobalAnimTimerLoadPatchState globalAnimTimerLoadState = GetGlobalAnimTimerLoadPatchState();
 		if (globalAnimTimerLoadState == kGlobalAnimTimerLoadPatchMismatch)
+			return false;
+
+		RendererInitFailurePatchState rendererInitFailureState = GetRendererInitFailurePatchState();
+		if (rendererInitFailureState == kRendererInitFailurePatchMismatch)
+			return false;
+
+		ActorGetAttackedPatchState actorGetAttackedState = GetActorGetAttackedPatchState();
+		if (actorGetAttackedState == kActorGetAttackedPatchMismatch)
+			return false;
+
+		ActorIsTalkingPatchState actorIsTalkingState = GetActorIsTalkingPatchState();
+		if (actorIsTalkingState == kActorIsTalkingPatchMismatch)
 			return false;
 
 		if (!ValidateDecode())
@@ -1014,6 +1443,33 @@ namespace
 			return false;
 		}
 
+		if (rendererInitFailureState == kRendererInitFailurePatchNeedsInstall &&
+			!WriteRelJump(kRendererInitFailurePatchSite,
+				(UInt32)&RendererInitFailurePatch,
+				sizeof(kRendererInitFailureExpectedBytes)))
+		{
+			Log("failed to write renderer initialization failure guard at %08X", kRendererInitFailurePatchSite);
+			return false;
+		}
+
+		if (actorGetAttackedState == kActorGetAttackedPatchNeedsInstall &&
+			!WriteRelJump(kActorGetAttackedPatchSite,
+				(UInt32)&ActorGetAttackedProcessGuardPatch,
+				sizeof(kActorGetAttackedExpectedBytes)))
+		{
+			Log("failed to write Actor::GetAttacked process null guard at %08X", kActorGetAttackedPatchSite);
+			return false;
+		}
+
+		if (actorIsTalkingState == kActorIsTalkingPatchNeedsInstall &&
+			!WriteRelJump(kActorIsTalkingPatchSite,
+				(UInt32)&ActorIsTalkingProcessGuardPatch,
+				sizeof(kActorIsTalkingExpectedBytes)))
+		{
+			Log("failed to write Actor::IsTalking process null guard at %08X", kActorIsTalkingPatchSite);
+			return false;
+		}
+
 		if (!WriteRelCall(kActorAnimUpdatePreSamplePatchSite, (UInt32)&ActorAnimPreSamplePatch) ||
 			!WriteNop(kActorAnimUpdatePreSamplePatchSite + 5, sizeof(kActorAnimPreSamplePatchExpectedBytes) - 5) ||
 			!WriteRelCall(kActorAnimUpdateClockPatchSite, (UInt32)&ActorAnimClockPatch))
@@ -1037,6 +1493,18 @@ namespace
 			Log("installed global animation timer load precision guard at %08X", kGlobalAnimTimerLoadPatchSite);
 		else
 			Log("accepted existing global animation timer load precision guard at %08X", kGlobalAnimTimerLoadPatchSite);
+		if (rendererInitFailureState == kRendererInitFailurePatchNeedsInstall)
+			Log("installed renderer initialization failure guard at %08X", kRendererInitFailurePatchSite);
+		else
+			Log("accepted existing renderer initialization failure guard at %08X", kRendererInitFailurePatchSite);
+		if (actorGetAttackedState == kActorGetAttackedPatchNeedsInstall)
+			Log("installed Actor::GetAttacked process null guard at %08X", kActorGetAttackedPatchSite);
+		else
+			Log("accepted existing Actor::GetAttacked process null guard at %08X", kActorGetAttackedPatchSite);
+		if (actorIsTalkingState == kActorIsTalkingPatchNeedsInstall)
+			Log("installed Actor::IsTalking process null guard at %08X", kActorIsTalkingPatchSite);
+		else
+			Log("accepted existing Actor::IsTalking process null guard at %08X", kActorIsTalkingPatchSite);
 		Log("installed ActorAnimData clock rebase hooks at %08X and %08X",
 			kActorAnimUpdatePreSamplePatchSite,
 			kActorAnimUpdateClockPatchSite);
@@ -1097,6 +1565,8 @@ BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, LPVOID)
 		DisableThreadLibraryCalls(instance);
 		OpenLog();
 		Log("Modern Engine Fixes %u initializing", kPluginVersion);
+		Log("static loading screen wait uses %.0f%% of Oblivion's configured duration",
+			(double)(kStaticLoadingScreenWaitScale * 100.0f));
 	}
 	else if (reason == DLL_PROCESS_DETACH)
 	{

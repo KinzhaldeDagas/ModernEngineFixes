@@ -173,6 +173,107 @@ Patch contract:
 - Read the same `0x00B030AC` duration and preserve the same `sub_410390(1)` pump.
 - Use `(SInt32)(GetTickCount() - start) < duration` instead of an absolute target.
 
+### Loading screen/movie speed trace
+
+The loading-screen presentation path was traced separately from save/load I/O.
+The static `.dds` wait above is reached from one caller:
+
+```asm
+00410DE5  push    esi
+00410DE6  call    sub_410840
+```
+
+`sub_410D10` copies a comma-separated sequence string, tokenizes it with
+`,` from `0x00A319FC`, pumps `sub_410390(1)` before each token, and dispatches
+by extension:
+
+```asm
+00410D79  push    1
+00410D7B  call    sub_410390
+...
+00410D9F  push    offset aBik
+00410DA5  call    __mbsicmp
+00410DC9  call    sub_410BA0      ; .bik token
+...
+00410DD3  push    offset aDds_0
+00410DD9  call    __mbsicmp
+00410DE6  call    sub_410840      ; .dds token
+```
+
+The wait duration for static `.dds` loading screens is not a hidden loader
+stall. It is the `fStaticScreenWaitTime:General` setting at `0x00A31B2C`, whose
+runtime value is stored at `0x00B030AC`. The IDA database default bytes for that
+runtime value are `00 00 40 40` (`3.0f`). `sub_410840` reads that value, converts
+seconds to milliseconds, and waits after drawing the static texture.
+
+`sub_410390` is a message/input pump, not a file loader:
+
+```asm
+004103A7  call    PeekMessageA
+004103C5  call    TranslateMessage
+004103CC  call    DispatchMessageA
+00410457  call    InputGlobals::PollAndUpdateInputState
+00410462  call    InputGlobals::QueryControlState
+00410471  call    InputGlobals::QueryControlState
+00410490  call    GetExitCodeThread
+```
+
+This proves only that static loading screens include a configured post-draw
+display interval. Modern Engine Fixes keeps that interval and fixes only the
+`GetTickCount` absolute-target arithmetic. Removing or shortening the wait would
+be a presentation/configuration change, not a decoded modern-Windows engine bug.
+
+The optional implementation reduction is intentionally documented as a
+presentation tweak. The value is built into the DLL rather than read from an
+external INI: the wait helper uses `fStaticScreenWaitTime:General * 0.70` before
+converting seconds to milliseconds. This decreases the verified artificial
+static-screen interval by 30%. The same `sub_410390(1)` pump and wrap-safe
+elapsed tick arithmetic are still used.
+
+Bink playback follows a separate timed-movie path. `sub_410BA0` creates or reuses
+a small movie state object and calls `sub_410A70`; `sub_410A70` loops
+`VideoPass` until playback completes or the pump exits:
+
+```asm
+00410AC5  push    ebx
+00410AC6  push    ebp
+00410AC9  call    VideoPass
+00410ACE  test    al, al
+00410AD0  jnz     00410AC5
+```
+
+`VideoPass` calls the same pump, checks `BinkWait`, advances frames with
+`BinkNextFrame`, and sleeps for `1` ms only when Bink reports the next frame is
+not ready:
+
+```asm
+004106C8  call    sub_410390
+004106E6  call    BinkWait
+00410726  call    BinkNextFrame
+004107F7  push    1
+004107F9  call    Sleep
+```
+
+The verified startup/movie callsites are:
+
+```asm
+0040EAEA  call    sub_410E40      ; starts MoviePlayer thread for sequence string
+0040F0BE  call    sub_410BA0      ; plays main-menu intro movie string
+00410DC9  call    sub_410BA0      ; .bik token in comma-separated sequence
+0066F2D1  call    sub_410BA0      ; cell-position transition loading movie path
+```
+
+Skipping those calls would skip movies or configured presentation assets. That
+may make startup or transitions appear faster, but the IDA trace does not show a
+modern-Windows compatibility failure in those Bink callsites. No Bink skip patch
+is included.
+
+Finally, the load-game transition guard below is separate from both presentation
+paths. IDA shows its single code reference at `0x00465BF7`, immediately before
+the save-load subroutine at `0x00465C4D`. The patch corrects the tick rollover
+comparison before save data processing begins; it does not speed up file reads
+or form reconstruction.
+
 ### Load-game start/menu transition tick bug
 
 The third verified hotspot is `sub_459A10`, called once from
@@ -261,7 +362,7 @@ what the IDA block proves.
 
 The next verified hotspot is the global scene animation timer stored at
 `0x00B33A30`. This is distinct from the per-actor `ActorAnimData + 0x94` clock
-handled by the separate `ActorAnimClockFix` project.
+handled by the integrated actor-animation clock fix later in this file.
 
 `sub_4424D0` advances the global timer:
 
@@ -441,9 +542,151 @@ seconds. This is an early precision guard for the actor-local single-precision
 accumulator; it is not decoded as a fire-specific path and does not rename the
 underlying animation state semantics.
 
+### Renderer initialization failure-message path
+
+EngineBugFixes' `InitRenderer` patch was used only as a naming/candidate hint.
+The accepted behavior was verified in Oblivion's IDA database.
+
+`CreateWindowAndInitialize` calls `sub_4980D0(1)` before constructing the
+Gamebryo renderer:
+
+```asm
+004983B8  call    sub_4980D0
+004983BD  add     esp, 4
+004983C0  or      ebp, 0FFFFFFFFh
+004983C3  xor     ebx, ebx
+004983C5  test    al, al
+004983C7  jz      loc_498566
+```
+
+`sub_4980D0` is the adapter/render-mode validation pass. Its failure exits write
+specific text into `byte_B34FC8`, including:
+
+```text
+Windowed mode not supported on this Adapter.
+Desired render mode not found on Adapter.
+Pixel and Vertex Shader versions incorrect.  Requires a Geforce4 4400 or Radeon 8500 or better.
+Hardware T&L required but not supported by Adapter.
+Bad Adapter Number or Adapter not found.
+No D3D Device description found.
+```
+
+The caller at `0x004052F0` uses `CreateWindowAndInitialize`'s return value to
+show the final startup error:
+
+```asm
+0040530E  call    CreateWindowAndInitialize
+00405316  test    eax, eax
+00405318  jnz     short loc_40534D
+0040531A  push    offset byte_B34FC8
+00405323  push    offset aFailedToInit_0 ; "Failed to initialize renderer.\n%s"
+0040533F  call    ds:MessageBoxA
+00405347  call    ds:ExitProcess
+```
+
+On validation failure, the original branch jumps into the later renderer path at
+`0x00498566`. If no renderer instance is available, that path writes
+`"Unknown error creating the Gamebryo Renderer."` at `0x004985F9`, replacing the
+more precise adapter/render-mode reason from `sub_4980D0`.
+
+Accepted patch contract:
+
+- At `0x004983C0`, test `AL`, the return value from `sub_4980D0(1)`, before
+  replaying the overwritten `or ebp, -1; xor ebx, ebx` bytes.
+- If validation failed, return through `0x00498E7D` so the caller reports the
+  already-written `byte_B34FC8` text.
+- If validation passed, resume at `0x004983C5` and let Oblivion's original
+  renderer initialization continue unchanged.
+
+This is a fidelity/diagnostic guard. It preserves the engine's own unsupported
+adapter/render-mode result; it does not reinterpret the mode list or make an
+unsupported display mode valid.
+
+If EngineBugFixes v2.22 has already installed the same `test al, al` guard with
+the original resume bytes and transfers to `0x004983C5`/`0x00498E7D`, Modern
+Engine Fixes accepts the site as already guarded and does not overwrite it.
+
+### Actor GetAttacked and IsTalking null process pointer
+
+EngineBugFixes' `ActorWithoutProcessCTD` patch was used only to identify a
+candidate address. The accepted target was verified directly in Oblivion IDA.
+
+`Actor::GetAttacked` is a short tail-call wrapper:
+
+```asm
+005E58C0  mov     ecx, [ecx+58h]
+005E58C3  mov     eax, [ecx]
+005E58C5  mov     edx, [eax+398h]
+005E58CB  jmp     edx
+```
+
+If `Actor +0x58` is null, `0x005E58C3` dereferences null before the call can
+reach the lower object. The neighboring wrapper at `0x005E58D0` accesses the
+same actor offset but checks it before using the vtable:
+
+```asm
+005E58D0  mov     ecx, [ecx+58h]
+005E58D3  test    ecx, ecx
+005E58D5  jz      short locret_5E58E1
+005E58D7  mov     eax, [ecx]
+005E58D9  mov     eax, [eax+39Ch]
+005E58DF  jmp     eax
+005E58E1  retn    4
+```
+
+Accepted patch contract:
+
+- Validate the original five bytes at `0x005E58C0`: `8B 49 58 8B 01`.
+- Validate the adjacent guarded wrapper at `0x005E58D0` as a same-offset
+  contrast point; this proves only the null-check pattern, not additional
+  gameplay semantics.
+- Replace only the first five bytes of `Actor::GetAttacked`.
+- If `Actor +0x58` is non-null, replay the original setup and continue at
+  `0x005E58C5`.
+- If `Actor +0x58` is null, return `0` directly. No actor state is created or
+  modified.
+- If EngineBugFixes has already installed a hook that loads `Actor +0x58`, tests
+  it, preserves the original vtable call setup, and returns zero on null, Modern
+  Engine Fixes accepts the site as already guarded.
+
+The same pass accepted `Actor::IsTalking`, another short actor-process wrapper:
+
+```asm
+005E0E60  mov     eax, ecx
+005E0E62  mov     ecx, [eax+58h]
+005E0E65  mov     edx, [ecx]
+005E0E67  push    eax
+005E0E68  mov     eax, [edx+368h]
+005E0E6E  call    eax
+005E0E70  retn
+```
+
+The local contrast point is again adjacent and explicit:
+
+```asm
+005E0E80  cmp     dword ptr [ecx+58h], 0
+005E0E84  jz      short loc_5E0E93
+005E0E86  mov     ecx, [ecx+58h]
+005E0E89  mov     eax, [ecx]
+005E0E8B  mov     edx, [eax+388h]
+005E0E91  jmp     edx
+005E0E93  xor     al, al
+005E0E95  retn
+```
+
+Accepted patch contract:
+
+- Validate the original five bytes at `0x005E0E62`: `8B 48 58 8B 11`.
+- Validate the adjacent guarded wrapper at `0x005E0E80`.
+- If `Actor +0x58` is non-null, replay the original setup and continue at
+  `0x005E0E67`.
+- If `Actor +0x58` is null, return through `0x005E0E70` with `AL = 0`.
+- If EngineBugFixes has already installed a hook with the same null check,
+  original setup, and false-return path, Modern Engine Fixes accepts it.
+
 ## Fidelity Pass Notes
 
-The Windows-facing scan covered:
+The Windows-facing and engine-bug scan covered:
 
 - `OSGlobals` main-thread handle: accepted the invalid `DuplicateHandle` argument
   block at `0x00404A55` after verifying that the stored handle is consumed by
@@ -456,23 +699,42 @@ The Windows-facing scan covered:
   `sub_4424D0`.
 - TragicEngineFix merge: accepted the per-actor `ActorAnimData +0x94` clock
   rebase only after verifying the active slot sample path, save/load summed-time
-  path, and lower `NiControllerSequence` time update path.
+  path, and lower `NiControllerSequence` time update path. The standalone
+  `ActorAnimClockFix.dll` is not part of the supported deployment; Modern Engine
+  Fixes owns the actor-clock hook sites directly.
+- Renderer init: accepted only the `sub_4980D0(1)` failure-message preservation
+  path at `0x004983C0`; no display-mode fallback or device-capability policy was
+  invented.
+- Actor null process: accepted only `Actor::GetAttacked` at `0x005E58C0` and
+  `Actor::IsTalking` at `0x005E0E62`, where IDA shows immediate null-sensitive
+  dereferences and nearby same-offset guarded wrappers. The broader
+  `ActorWithoutProcessCTD` family remains unmerged until each individual
+  callsite is verified the same way.
 - `GetVersionExA`: imported but no code xrefs in the IDA database; no patch.
 - `QueryPerformanceCounter/Frequency`: I/O manager code uses 64-bit counter
   comparisons; no patch.
 - `GlobalMemoryStatus`: memory heap callsites use physical-memory fields for
   telemetry/low-memory cleanup thresholds; no verified modern-Windows semantic
   replacement was applied.
+- `GetDriveTypeA`/`GetLogicalDriveStringsA`: `sub_404940` enumerates CD-ROM
+  drives and looks for `OblivionLauncher.exe`; its WinMain callers display
+  copy-protection prompts. This was decoded but deliberately not patched.
 - `_strrchr` xrefs: most callsites test the return pointer before use. Several
   savegame path helpers use `strrchr(path, '\\') + 1`; those assume full internal
   paths and are not the high-address signed-subtract failure fixed above.
 
 ## Verification Notes
 
-- Exact original bytes were read from IDA for all four patch sites before adding
+- Exact original bytes were read from IDA for the installed patch sites before adding
   validation arrays.
 - `_strrchr` xrefs were scanned in the IDA database. `0x004A26F7` was the only
   verified `strrchr` callsite found with an immediate unchecked `return - source`
   length path.
+- Renderer initialization was verified against both the mode-validation helper
+  and its single startup caller before accepting the `0x004983C0` early-exit
+  guard.
+- `Actor::GetAttacked` and `Actor::IsTalking` were verified against their raw
+  vtable wrappers and adjacent guarded actor process wrappers before accepting
+  their null guards.
 - The plugin validates exact decoded bytes before patching any site.
 - The plugin refuses to patch non-1.2.0.416 runtimes through `OBSEPlugin_Query`.
