@@ -1,0 +1,48 @@
+# Modern Engine Fixes
+
+`Modern Engine Fixes.dll` is a narrow OBSE runtime plugin for Oblivion
+1.2.0.416. It targets IDA-verified engine-level compatibility failures observed
+on modern Windows, without renaming or inventing gameplay semantics.
+
+Verified fixes:
+
+- `0x00404A55`: fixes `OSGlobals` main-thread handle duplication. Oblivion
+  stored a thread handle for later Bink `SuspendThread`/`ResumeThread` use, but
+  the original `DuplicateHandle` call passed null process handles.
+- `0x004A26F7`: guards a `BSTexturePalette` texture-path pass where Oblivion
+  calls `strrchr(path, '_')`, subtracts the source pointer from the return value,
+  and only then checks the signed result. If `BA_EngineFixes` has already
+  installed the exact same guard thunk, this plugin accepts that site as already
+  fixed and continues with the remaining patches.
+- `0x004109EB`: replaces the loading texture wait block. The plugin preserves
+  the same configured duration and `sub_410390(1)` pump call, but uses wrap-safe
+  elapsed `GetTickCount` math.
+- `0x00459A43`: fixes the load-game start/menu transition threshold check by
+  preserving the tick write and comparing elapsed time instead of `now` against
+  `start + 3000`.
+- `0x005BDD35`: fixes a worldspace message delay loop by preserving the same
+  three pump calls and replacing `now < start + 1000` with wrap-safe elapsed
+  time.
+- `0x004413DB`: guards the saved global scene animation timer. On load, if
+  `flt_B33A30` is already large enough to lose ordinary frame deltas as a
+  32-bit float, the plugin resets it before scene-root visual controllers resume.
+  If EngineBugFixes v2.22 has already installed its verified `GlobalAnimTimerFix`
+  hook, this plugin accepts that site as already fixed and continues.
+- `0x00476E86` and `0x00476FA6`: merge the local TragicEngineFix-lineage
+  actor-animation clock guard. The plugin keeps `ActorAnimData +0x94` and the
+  paired active `BSAnimGroupSequence +0x48` offsets numerically small while
+  preserving their summed sample time.
+
+The full IDA-backed decode is in `IDA_DECODE.md`.
+
+Build:
+
+```powershell
+msbuild .\ModernWindowsCompatible\ModernWindowsCompatible.vcxproj /p:Configuration=Release /p:Platform=Win32
+```
+
+Output:
+
+```text
+Modern Engine Fixes.dll
+```
