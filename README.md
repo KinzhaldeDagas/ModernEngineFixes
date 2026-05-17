@@ -2,7 +2,7 @@
 
 `Modern Engine Fixes.dll` is a narrow OBSE runtime plugin for Oblivion
 1.2.0.416. It targets IDA-verified engine-level compatibility failures observed
-on modern Windows, without renaming or inventing gameplay semantics.
+on modern Windows.
 
 Verified fixes:
 
@@ -34,12 +34,6 @@ Verified fixes:
   preserving their summed sample time.
 
 The full IDA-backed decode is in `IDA_DECODE.md`.
-
-Build:
-
-```powershell
-msbuild .\ModernWindowsCompatible\ModernWindowsCompatible.vcxproj /p:Configuration=Release /p:Platform=Win32
-```
 
 Output:
 
