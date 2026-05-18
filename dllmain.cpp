@@ -12,7 +12,7 @@ namespace
 	typedef unsigned int UInt32;
 	typedef int SInt32;
 
-	static const UInt32 kPluginVersion = 15;
+	static const UInt32 kPluginVersion = 16;
 	static const UInt32 kPluginInfoVersion = 2;
 	static const UInt32 kOblivionVersion_1_2_0_416 = 0x010201A0;
 
@@ -835,16 +835,19 @@ namespace
 			return false;
 
 		const UInt8* code = (const UInt8*)hook;
-		bool loadsProcessAndChecksNull =
-			code[0] == 0x8B &&
-			code[1] == 0x41 &&
-			code[2] == 0x58 &&
-			code[3] == 0x85 &&
-			code[4] == 0xC0 &&
-			code[5] == 0x74;
-
-		if (!loadsProcessAndChecksNull)
-			return false;
+		bool loadsProcessAndChecksNull = false;
+		for (UInt32 i = 0; i + 6 <= kScanLength; i++)
+		{
+			if (((code[i] == 0x8B && code[i + 1] == 0x41 && code[i + 2] == 0x58 &&
+						code[i + 3] == 0x85 && code[i + 4] == 0xC0) ||
+					(code[i] == 0x8B && code[i + 1] == 0x49 && code[i + 2] == 0x58 &&
+						code[i + 3] == 0x85 && code[i + 4] == 0xC9)) &&
+				code[i + 5] == 0x74)
+			{
+				loadsProcessAndChecksNull = true;
+				break;
+			}
+		}
 
 		bool hasOriginalCallSetup = false;
 		for (UInt32 i = 0; i + 10 <= kScanLength; i++)
@@ -873,7 +876,10 @@ namespace
 			}
 		}
 
-		return hasOriginalCallSetup && returnsFalseOnNull;
+		return loadsProcessAndChecksNull &&
+			hasOriginalCallSetup &&
+			returnsFalseOnNull &&
+			InlineTransferTargets(hook, code, kScanLength, kActorGetAttackedContinueSite);
 	}
 
 	static ActorGetAttackedPatchState GetActorGetAttackedPatchState()
@@ -924,16 +930,20 @@ namespace
 			return false;
 
 		const UInt8* code = (const UInt8*)hook;
-		bool loadsProcessAndChecksNull =
-			code[0] == 0x8B &&
-			code[1] == 0x48 &&
-			code[2] == 0x58 &&
-			code[3] == 0x85 &&
-			code[4] == 0xC9 &&
-			code[5] == 0x74;
-
-		if (!loadsProcessAndChecksNull)
-			return false;
+		bool loadsProcessAndChecksNull = false;
+		for (UInt32 i = 0; i + 6 <= kScanLength; i++)
+		{
+			if (code[i] == 0x8B &&
+				code[i + 1] == 0x48 &&
+				code[i + 2] == 0x58 &&
+				code[i + 3] == 0x85 &&
+				code[i + 4] == 0xC9 &&
+				code[i + 5] == 0x74)
+			{
+				loadsProcessAndChecksNull = true;
+				break;
+			}
+		}
 
 		bool hasOriginalCallSetup = false;
 		for (UInt32 i = 0; i + 2 <= kScanLength; i++)
@@ -956,7 +966,8 @@ namespace
 			}
 		}
 
-		return hasOriginalCallSetup &&
+		return loadsProcessAndChecksNull &&
+			hasOriginalCallSetup &&
 			returnsFalseOnNull &&
 			InlineTransferTargets(hook, code, kScanLength, kActorIsTalkingContinueSite) &&
 			InlineTransferTargets(hook, code, kScanLength, kActorIsTalkingReturnSite);

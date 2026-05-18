@@ -38,10 +38,12 @@ Verified fixes:
 - `0x005E58C0`: guards `Actor::GetAttacked` when `Actor +0x58` is null. IDA
   shows the original function immediately dereferences that pointer before
   tail-jumping through the pointee vtable; the patch returns false only for the
-  null-pointer case.
+  null-pointer case. If EngineBugFixes v2.22 has already installed its matching
+  `ActorWithoutProcessCTD` hook, this plugin accepts that site as already fixed.
 - `0x005E0E62`: applies the same verified null-pointer guard to
   `Actor::IsTalking`. The adjacent actor wrapper at `0x005E0E80` already returns
   false for a null `Actor +0x58`, so the patch mirrors that local engine pattern.
+  Existing EngineBugFixes v2.22 coverage is accepted the same way.
 - `0x00476E86` and `0x00476FA6`: merge the local TragicEngineFix-lineage
   actor-animation clock guard. The plugin keeps `ActorAnimData +0x94` and the
   paired active `BSAnimGroupSequence +0x48` offsets numerically small while

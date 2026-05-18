@@ -646,8 +646,11 @@ Accepted patch contract:
 - If `Actor +0x58` is null, return `0` directly. No actor state is created or
   modified.
 - If EngineBugFixes has already installed a hook that loads `Actor +0x58`, tests
-  it, preserves the original vtable call setup, and returns zero on null, Modern
-  Engine Fixes accepts the site as already guarded.
+  it, preserves the original vtable call setup, transfers back to `0x005E58C5`,
+  and returns zero on null, Modern Engine Fixes accepts the site as already
+  guarded. EngineBugFixes emits setup bytes before the inline guard body, so the
+  recognizer scans the hook target for this verified shape instead of requiring
+  it at byte zero.
 
 The same pass accepted `Actor::IsTalking`, another short actor-process wrapper:
 
@@ -682,7 +685,10 @@ Accepted patch contract:
   `0x005E0E67`.
 - If `Actor +0x58` is null, return through `0x005E0E70` with `AL = 0`.
 - If EngineBugFixes has already installed a hook with the same null check,
-  original setup, and false-return path, Modern Engine Fixes accepts it.
+  original setup, transfer to `0x005E0E67`, and false-return path through
+  `0x005E0E70`, Modern Engine Fixes accepts it. As with `GetAttacked`, the
+  recognizer scans past EngineBugFixes' setup bytes and still refuses arbitrary
+  unknown jumps.
 
 ## Fidelity Pass Notes
 
