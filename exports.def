@@ -1,4 +1,0 @@
-LIBRARY "Modern Engine Fixes"
-EXPORTS
-OBSEPlugin_Query
-OBSEPlugin_Load
