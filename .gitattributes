@@ -1,0 +1,2 @@
+# Preserve the pinned upstream SDK bytes, including line endings.
+third_party/xobse/** -text
