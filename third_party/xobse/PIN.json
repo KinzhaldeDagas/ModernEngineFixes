@@ -1,0 +1,13 @@
+{
+  "repository": "https://github.com/llde/xOBSE",
+  "commit": "b73524229ccc768a711cdd1d77aae2fe2faa6b52",
+  "files": {
+    "obse/obse/PluginAPI.h": "8ed42e83dc6905445d4a416ed7490095940b2eadee3afe8a016c1467a61d949a",
+    "obse/obse/CommandTable.h": "32a7d6c8d575cbb8cb8b9cf05333c09f974019c223bb53af3999239182b6b637",
+    "obse/obse/Tasks.h": "a5e882d9a2d2aab009d66aff798f87aadeb32a28e3a9bfdce8ea717c3ec8bcfe",
+    "common/ITypes.h": "01952078b9a54cc2816d7e9c260b62218f0bce0518b717cf3ca110507095b7e8",
+    "common/IErrors.h": "1e9b4b1bb39026e9380fce31406fdecf88a81844c95b581355eb193d89eff87f",
+    "common/common_license.txt": "68668adf7fb2457ff39292d2fe064ff9b79a41ad528bf9609389592719722511",
+    "README.md": "6a9662c4370ad762012f66483a2cc1e3e523f71f0f6db445b70ae5e428b0b7d6"
+  }
+}

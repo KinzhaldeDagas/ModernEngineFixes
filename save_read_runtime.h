@@ -3,6 +3,7 @@
 struct __declspec(align(8)) SaveReadCounters
 { volatile LONG64 accepted, unsupported, rejected, unexpected; };
 static SaveReadCounters s_saveReadCounters = {};
+static UInt32 s_saveReadAdmissionTraceCount = 0;
 static void SaveReadRuntimeEvent(SaveReadPreflightResult result)
 {
     if (result != kSaveReadUnexpectedSeek && result != kSaveReadUnexpectedShortRead) return;
@@ -18,6 +19,9 @@ static UInt8 __fastcall SaveReadPreflightGate(UInt8* owner, void*, UInt8* stream
         SaveReadRuntimeEvent, 256u * 1024u * 1024u
     };
     const SaveReadPreflightResult result = SaveReadBindSnapshot(owner, stream, service);
+    if (s_traceSaveReads && s_saveReadAdmissionTraceCount++ < 16)
+        Log("SR1 admission result=%u version=%02X snapshot=%u", (UInt32)result,
+            owner ? (UInt32)owner[0x71] : 0, SaveReadIsSnapshot(stream) ? 1u : 0u);
     if (result == kSaveReadAccepted)
         InterlockedIncrement64(&s_saveReadCounters.accepted);
     else if (result == kSaveReadUnsupportedVersion || result == kSaveReadUnsupportedStream ||

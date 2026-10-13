@@ -13,9 +13,9 @@ class PatchTransaction
 public:
     typedef BOOL (WINAPI* ProtectFn)(LPVOID, SIZE_T, DWORD, PDWORD);
     typedef BOOL (WINAPI* FlushFn)(HANDLE, LPCVOID, SIZE_T);
-    static const unsigned MaxWrites = 192;
+    static const unsigned MaxWrites = 512;
     static const unsigned MaxBytes = 256;
-    static const unsigned MaxPages = 192;
+    static const unsigned MaxPages = 512;
 
     explicit PatchTransaction(ProtectFn protect = VirtualProtect,
         FlushFn flush = FlushInstructionCache)
@@ -108,7 +108,10 @@ public:
             // No engine bytes have changed. A failed permission restore is
             // reported, but cannot leave a detour into an unloaded module.
             if (!RestoreProtection())
+            {
+                m_rollbackIncomplete = true;
                 m_error = "patch preflight failed; page protection restore also failed";
+            }
             return false;
         }
 
@@ -218,7 +221,10 @@ private:
         if (!m_flush(GetCurrentProcess(), NULL, 0))
             m_rollbackIncomplete = true;
         if (!RestoreProtection())
+        {
+            m_rollbackIncomplete = true;
             m_error = "patches rolled back; page protection restore failed";
+        }
     }
 };
 }

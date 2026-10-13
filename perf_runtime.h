@@ -1,4 +1,6 @@
-// Runtime wiring only. Every patch is staged in the existing single transaction.
+// Save/cache producers and invalidators stay atomic in SavePerformanceRuntime.
+// SaveReadSnapshot installs independently: these observers recognize its vtable
+// when present and return the existing native fallback when it is absent.
 static DWORD __cdecl PerfEngineMainThread()
 {
     UInt8* main=*(UInt8**)kPerfActorMainAddr;

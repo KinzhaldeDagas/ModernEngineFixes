@@ -1,0 +1,220 @@
+#pragma once
+// Explicit ownership for every installable write. Engine signatures remain in
+// the implementation fragments expanded by the offline verifier.
+enum PatchGroupId
+{
+    kGroupSavePerformanceRuntime,
+    kGroupThreadHandle,
+    kGroupListAllocation,
+    kGroupEffectListAllocation,
+    kGroupTexturePaletteGuard,
+    kGroupActorAnimationClock,
+    kGroupWorldspaceOffsets,
+    kGroupLoadingWait,
+    kGroupLoadTick,
+    kGroupMessageTick,
+    kGroupSaveReadSnapshot,
+    kGroupRenderOptimizations,
+    kPatchGroupCount
+};
+enum class PatchGroupState { Pending, Disabled, Installed, AlreadyInstalledByMEF,
+    CoveredByVerifiedEquivalent, DeferredToExternalPolicy, SkippedConflict, SkippedDependency,
+    FailedRolledBack, FatalRetained };
+// Each descriptor uses PatchGroupEnabled, ValidateSelectedPatchGroup and
+// StageSelectedPatchGroup with its selected ID. All validators and writes are
+// explicitly scoped to that ID; shared resources stay in one startup-only rollback group.
+struct PatchGroupDescriptor { const char* name; int prerequisite; const char* resources; };
+static const PatchGroupDescriptor s_patchGroups[] = {
+    {"SavePerformanceRuntime", -1, "save bounds, snapshots, map lifetimes, cache invalidators, archive publication"},
+    {"ThreadHandle", -1, "native engine ABI; static or lazily allocated feature state"},
+    {"ListAllocation", -1, "native engine ABI; static or lazily allocated feature state"},
+    {"EffectListAllocation", -1, "native engine ABI; static or lazily allocated feature state"},
+    {"TexturePaletteGuard", -1, "native engine ABI; static or lazily allocated feature state"},
+    {"ActorAnimationClock", -1, "native engine ABI; static or lazily allocated feature state"},
+    {"WorldspaceOffsets", -1, "native engine ABI; static or lazily allocated feature state"},
+    {"LoadingWait", -1, "native engine ABI; static or lazily allocated feature state"},
+    {"LoadTick", -1, "native engine ABI; static or lazily allocated feature state"},
+    {"MessageTick", -1, "native engine ABI; static or lazily allocated feature state"},
+    {"SaveReadSnapshot", -1, "per-stream copied vtable and immutable bytes; native fallback for consumers without snapshots"},
+    {"RenderOptimizations", kGroupSavePerformanceRuntime, "lighting list writers/readers, property ordering, bounded passes and render sort; core pressure invalidation required"},
+};
+struct PatchWriteWindow { UInt32 address, length; PatchGroupId group; };
+static const PatchWriteWindow s_patchWriteWindows[] = {
+    {kSaveReadGatePatchSite, 5, kGroupSaveReadSnapshot},
+    {kPerfSaveQueuePatchSite, 5, kGroupSavePerformanceRuntime},
+    {kPerfExteriorQueryPatchSite, sizeof(kPerfExteriorQueryPatchSiteExpectedBytes), kGroupSavePerformanceRuntime},
+    {kPerfExteriorConsumerPatchSite, sizeof(kPerfExteriorConsumerPatchSiteExpectedBytes), kGroupSavePerformanceRuntime},
+    {kPerfExteriorAddPatchSite, sizeof(kPerfExteriorAddPatchSiteExpectedBytes), kGroupSavePerformanceRuntime},
+    {kPerfExteriorCtorPatchSite, sizeof(kPerfExteriorCtorPatchSiteExpectedBytes), kGroupSavePerformanceRuntime},
+    {kPerfExteriorDtorPatchSite, sizeof(kPerfExteriorDtorPatchSiteExpectedBytes), kGroupSavePerformanceRuntime},
+    {kPerfAMArchiveEnumerateSite, sizeof(kPerfAMArchiveEnumerateSiteExpectedBytes), kGroupSavePerformanceRuntime},
+    {kPerfAMArchiveEmitSite, sizeof(kPerfAMArchiveEmitSiteExpectedBytes), kGroupSavePerformanceRuntime},
+    {kPerfAMAddModelSite, sizeof(kPerfAMAddModelSiteExpectedBytes), kGroupSavePerformanceRuntime},
+    {kPerfAMCopySite, sizeof(kPerfAMCopySiteExpectedBytes), kGroupSavePerformanceRuntime},
+    {kPerfAMClearModelSite, sizeof(kPerfAMClearModelSiteExpectedBytes), kGroupSavePerformanceRuntime},
+    {kPerfAMNifzReadSite, 5, kGroupSavePerformanceRuntime},
+    {kPerfAMNifzBatchSite, sizeof(kPerfAMNifzBatchSiteExpectedBytes), kGroupSavePerformanceRuntime},
+    {kPerfLC1Site, sizeof(kPerfLC1SiteExpectedBytes), kGroupRenderOptimizations},
+    {kPerfActorRebuildPatchSite, 5, kGroupSavePerformanceRuntime},
+    {kPerfSaveMapSetAtPatchSite, sizeof(kPerfSaveMapSetAtPatchSiteExpectedBytes), kGroupSavePerformanceRuntime},
+    {kPerfSaveMapRemovePatchSite, sizeof(kPerfSaveMapRemovePatchSiteExpectedBytes), kGroupSavePerformanceRuntime},
+    {kPerfSaveMapClearPatchSite, sizeof(kPerfSaveMapClearPatchSiteExpectedBytes), kGroupSavePerformanceRuntime},
+    {kPerfSaveMapCtorPatchSite, sizeof(kPerfSaveMapCtorPatchSiteExpectedBytes), kGroupSavePerformanceRuntime},
+    {kPerfSaveMapDtorPatchSite, sizeof(kPerfSaveMapDtorPatchSiteExpectedBytes), kGroupSavePerformanceRuntime},
+    {kPerfActorMapPressurePatchSite, sizeof(kPerfActorMapPressurePatchSiteExpectedBytes), kGroupSavePerformanceRuntime},
+    {kPerfOrderedSortPatchSite, sizeof(kPerfOrderedSortPatchSiteExpectedBytes), kGroupRenderOptimizations},
+    {kPerfDenseRefPatchSite, sizeof(kPerfDenseRefPatchSiteExpectedBytes), kGroupSavePerformanceRuntime},
+    {kPerfDenseRawPatchSite, sizeof(kPerfDenseRawPatchSiteExpectedBytes), kGroupSavePerformanceRuntime},
+    {kPerfFreshTransferPatchSite, sizeof(kPerfFreshTransferPatchSiteExpectedBytes), kGroupSavePerformanceRuntime},
+    {kPerfPropertyOrderCallSite, 5, kGroupRenderOptimizations},
+    {kPerfPropertyPrefixPatchSite, sizeof(kPerfPropertyPrefixPatchSiteExpectedBytes), kGroupRenderOptimizations},
+    {kIndexedLightAddTailPatchSite, sizeof(kIndexedLightAddTailPatchSiteExpectedBytes), kGroupRenderOptimizations},
+    {kIndexedLightAddHeadPatchSite, sizeof(kIndexedLightAddHeadPatchSiteExpectedBytes), kGroupRenderOptimizations},
+    {kIndexedLightInsertBeforePatchSite, sizeof(kIndexedLightInsertBeforePatchSiteExpectedBytes), kGroupRenderOptimizations},
+    {kIndexedLightRemovePositionPatchSite, sizeof(kIndexedLightRemovePositionPatchSiteExpectedBytes), kGroupRenderOptimizations},
+    {kIndexedLightRemoveHeadPatchSite, sizeof(kIndexedLightRemoveHeadPatchSiteExpectedBytes), kGroupRenderOptimizations},
+    {kIndexedLightRemoveTailPatchSite, sizeof(kIndexedLightRemoveTailPatchSiteExpectedBytes), kGroupRenderOptimizations},
+    {kIndexedLightClearListPatchSite, sizeof(kIndexedLightClearListPatchSiteExpectedBytes), kGroupRenderOptimizations},
+    {kIndexedLightMoveBeforePatchSite, sizeof(kIndexedLightMoveBeforePatchSiteExpectedBytes), kGroupRenderOptimizations},
+    {kIndexedLightSetSourcePatchSite, sizeof(kIndexedLightSetSourcePatchSiteExpectedBytes), kGroupRenderOptimizations},
+    {kIndexedLightFindSourcePatchSite, sizeof(kIndexedLightFindSourcePatchSiteExpectedBytes), kGroupRenderOptimizations},
+    {kIndexedLightRemoveValuePatchSite, sizeof(kIndexedLightRemoveValuePatchSiteExpectedBytes), kGroupRenderOptimizations},
+    {kIndexedLightBeginReceiversPatchSite, sizeof(kIndexedLightBeginReceiversPatchSiteExpectedBytes), kGroupRenderOptimizations},
+    {kIndexedLightEndReceiversPatchSite, sizeof(kIndexedLightEndReceiversPatchSiteExpectedBytes), kGroupRenderOptimizations},
+    {kIndexedLightReceiverSearchPatchSite, sizeof(kIndexedLightReceiverSearchPatchSiteExpectedBytes), kGroupRenderOptimizations},
+    {kPerfSortReusePatchSite, sizeof(kPerfSortReusePatchSiteExpectedBytes), kGroupSavePerformanceRuntime},
+    {kPerfShadowTrimPatchSite, 5, kGroupSavePerformanceRuntime},
+    {kPerfPeriodicTrimPatchSite, sizeof(kPerfPeriodicTrimPatchSiteExpectedBytes), kGroupSavePerformanceRuntime},
+    {kPerfLightRankPatchSite, sizeof(kPerfLightRankPatchSiteExpectedBytes), kGroupRenderOptimizations},
+    {kPerfFormIDPatchSite, sizeof(kPerfFormIDPatchSiteExpectedBytes), kGroupSavePerformanceRuntime},
+    {kPerfWorldIDPatchSite, sizeof(kPerfWorldIDPatchSiteExpectedBytes), kGroupSavePerformanceRuntime},
+    {kPerfOwnerCtorPatchSite, sizeof(kPerfOwnerCtorPatchSiteExpectedBytes), kGroupSavePerformanceRuntime},
+    {kPerfOwnerDestroyPatchSite, sizeof(kPerfOwnerDestroyPatchSiteExpectedBytes), kGroupSavePerformanceRuntime},
+    {kPerfOwnerResetPatchSite, sizeof(kPerfOwnerResetPatchSiteExpectedBytes), kGroupSavePerformanceRuntime},
+    {kPerfIDLoadPatchSite, sizeof(kPerfIDLoadPatchSiteExpectedBytes), kGroupSavePerformanceRuntime},
+    {kPerfArraySetPatchSite, sizeof(kPerfArraySetPatchSiteExpectedBytes), kGroupSavePerformanceRuntime},
+    {kPerfArrayResizePatchSite, sizeof(kPerfArrayResizePatchSiteExpectedBytes), kGroupSavePerformanceRuntime},
+    {kPerfNumericPrefixPatchSite, sizeof(kPerfNumericPrefixPatchSiteExpectedBytes), kGroupSavePerformanceRuntime},
+    {kPerfWorldPrefixPatchSite, sizeof(kPerfWorldPrefixPatchSiteExpectedBytes), kGroupSavePerformanceRuntime},
+    {kPerfNumericReservePatchSite, 5, kGroupSavePerformanceRuntime},
+    {kPerfWorldReservePatchSite, 5, kGroupSavePerformanceRuntime},
+    {kPerfMasterPatchSite, sizeof(kPerfMasterPatchSiteExpectedBytes), kGroupSavePerformanceRuntime},
+    {kArchiveCachedNamesDeferPatchSite, sizeof(kArchiveCachedNamesDeferExpectedBytes), kGroupSavePerformanceRuntime},
+    {kArchiveCachedNamesBuildPatchSite, sizeof(kArchiveCachedNamesBuildExpectedBytes), kGroupSavePerformanceRuntime},
+    {kArchiveRegistrationPatchSite, sizeof(kArchiveRegistrationExpectedBytes), kGroupSavePerformanceRuntime},
+    {kMainThreadHandlePatchSite, sizeof(kMainThreadHandleExpectedBytes), kGroupThreadHandle},
+    {kBSSimpleListInsertSortedAllocFailureBranchSite, sizeof(kBSSimpleListInsertSortedAllocFailureReplacementBytes), kGroupListAllocation},
+    {kBSSimpleListPushFrontAllocFailureBranchSite, sizeof(kBSSimpleListPushFrontAllocFailureReplacementBytes), kGroupListAllocation},
+    {kEffectSettingFilteredListHeadAllocPatchSite, 5, kGroupEffectListAllocation},
+    {kEffectSettingFilteredListNodeAllocFailureBranchSite, sizeof(kEffectSettingFilteredListNodeAllocFailureReplacementBytes), kGroupEffectListAllocation},
+    {kTexturePaletteUnderscorePatchSite, sizeof(kTexturePaletteExpectedBytes), kGroupTexturePaletteGuard},
+    {kSaveLoadCreateBufferPatchSite, sizeof(kSaveLoadCreateBufferExpectedBytes), kGroupSavePerformanceRuntime},
+    {kSaveLoadFreeBufferPatchSite, sizeof(kSaveLoadFreeBufferExpectedBytes), kGroupSavePerformanceRuntime},
+    {kSaveLoadRawBlobMap54PatchSite, sizeof(kSaveLoadRawBlobMap54ExpectedBytes), kGroupSavePerformanceRuntime},
+    {kSaveLoadRawBlobMap58PatchSite, sizeof(kSaveLoadRawBlobMap58ExpectedBytes), kGroupSavePerformanceRuntime},
+    {kSaveLoadRawBlobMap5CPatchSite, sizeof(kSaveLoadRawBlobMap5CExpectedBytes), kGroupSavePerformanceRuntime},
+    {kSaveLoadRawBlobMap60PatchSite, sizeof(kSaveLoadRawBlobMap60ExpectedBytes), kGroupSavePerformanceRuntime},
+    {kSaveLoadBoundedLoadDataPatchSite, sizeof(kSaveLoadBoundedLoadDataExpectedBytes), kGroupSavePerformanceRuntime},
+    {kSaveLoadActivateDeferredBufferPatchSite, sizeof(kSaveLoadActivateDeferredBufferExpectedBytes), kGroupSavePerformanceRuntime},
+    {kSaveLoadAnimationBufferBeginPatchSite, sizeof(kSaveLoadAnimationBufferBeginExpectedBytes), kGroupSavePerformanceRuntime},
+    {kSaveLoadAnimationBufferEndPatchSite, sizeof(kSaveLoadAnimationBufferEndExpectedBytes), kGroupSavePerformanceRuntime},
+    {kSaveLoadAttachedAnimationBufferBeginPatchSite, sizeof(kSaveLoadAttachedAnimationBufferBeginExpectedBytes), kGroupSavePerformanceRuntime},
+    {kSaveLoadAttachedAnimationBufferEndPatchSite, sizeof(kSaveLoadAttachedAnimationBufferEndExpectedBytes), kGroupSavePerformanceRuntime},
+    {kSaveLoadCharacterBufferBeginPatchSite, sizeof(kSaveLoadCharacterBufferBeginExpectedBytes), kGroupSavePerformanceRuntime},
+    {kSaveLoadCharacterBufferEndPatchSite, sizeof(kSaveLoadCharacterBufferEndExpectedBytes), kGroupSavePerformanceRuntime},
+    {kSaveLoadHavokBufferBeginPatchSite, sizeof(kSaveLoadHavokBufferBeginExpectedBytes), kGroupSavePerformanceRuntime},
+    {kSaveLoadHavokBufferEndPatchSite, sizeof(kSaveLoadHavokBufferEndExpectedBytes), kGroupSavePerformanceRuntime},
+    {kSaveLoadExpiredCellEntryAllocPatchSite, 5, kGroupSavePerformanceRuntime},
+    {kSaveLoadExpiredCellListAllocPatchSite, 5, kGroupSavePerformanceRuntime},
+    {kContainerExtraDataListNodePatchSite, sizeof(kContainerExtraDataListNodeExpectedBytes), kGroupSavePerformanceRuntime},
+    {kExtraDataRegionListBufferAllocPatchSite, 5, kGroupSavePerformanceRuntime},
+    {kExtraDataLockDataAllocPatchSite, sizeof(kExtraDataLockDataAllocExpectedBytes), kGroupSavePerformanceRuntime},
+    {kExtraDataLockWrapperAllocPatchSite, sizeof(kExtraDataLockWrapperAllocExpectedBytes), kGroupSavePerformanceRuntime},
+    {kExtraDataMapMarkerAllocPatchSite, sizeof(kExtraDataMapMarkerAllocExpectedBytes), kGroupSavePerformanceRuntime},
+    {kExtraDataTeleportAllocPatchSite, sizeof(kExtraDataTeleportAllocExpectedBytes), kGroupSavePerformanceRuntime},
+    {kExtraDataRagdollAllocPatchSite, sizeof(kExtraDataRagdollAllocExpectedBytes), kGroupSavePerformanceRuntime},
+    {kExtraDataRagdollPayloadAllocPatchSite, sizeof(kExtraDataRagdollPayloadAllocExpectedBytes), kGroupSavePerformanceRuntime},
+    {kExtraDataRegionListAllocPatchSite, sizeof(kExtraDataRegionListAllocExpectedBytes), kGroupSavePerformanceRuntime},
+    {kAnimationChunkBufferAllocPatchSite, 5, kGroupSavePerformanceRuntime},
+    {kTESCreatureNIFZBufferAllocPatchSite, 5, kGroupSavePerformanceRuntime},
+    {kScriptEventListOptionalDataAllocPatchSite, sizeof(kScriptEventListOptionalDataAllocExpectedBytes), kGroupSavePerformanceRuntime},
+    {kArchiveFolderNameAllocPatchSite, 5, kGroupSavePerformanceRuntime},
+    {kBSFileWriteSwappedAllocPatchSite, 5, kGroupSavePerformanceRuntime},
+    {kBSFileOpenBufferAllocPatchSite, sizeof(kBSFileOpenBufferAllocExpectedBytes), kGroupSavePerformanceRuntime},
+    {kModelWildcardPathAllocPatchSite, 5, kGroupSavePerformanceRuntime},
+    {kKFListHeadAllocPatchSite, 5, kGroupSavePerformanceRuntime},
+    {kKFListStringAllocPatchSite, 5, kGroupSavePerformanceRuntime},
+    {kKFListNodeAllocPatchSite, sizeof(kKFListNodeAllocExpectedBytes), kGroupSavePerformanceRuntime},
+    {kTESFileUpdateGroupsAllocPatchSite, 5, kGroupSavePerformanceRuntime},
+    {kArchiveMasterListAllocPatchSite, sizeof(kArchiveMasterListAllocExpectedBytes), kGroupSavePerformanceRuntime},
+    {kArchiveMasterListAppendPatchSite, sizeof(kArchiveMasterListAppendExpectedBytes), kGroupSavePerformanceRuntime},
+    {kArchivePluginsFileClosePatchSite, sizeof(kArchivePluginsFileCloseExpectedBytes), kGroupSavePerformanceRuntime},
+    {kArchiveSearchHandleClosePatchSite, sizeof(kArchiveSearchHandleCloseExpectedBytes), kGroupSavePerformanceRuntime},
+    {kArchiveMasterListNewlinePatchSite, sizeof(kArchiveMasterListNewlineExpectedBytes), kGroupSavePerformanceRuntime},
+    {kTESSpellListCountPatchSite, sizeof(kTESSpellListCountExpectedBytes), kGroupSavePerformanceRuntime},
+    {kTESSpellListNodeAllocPatchSite, sizeof(kTESSpellListNodeAllocExpectedBytes), kGroupSavePerformanceRuntime},
+    {kAVCollectionCountPatchSite, sizeof(kAVCollectionCountExpectedBytes), kGroupSavePerformanceRuntime},
+    {kMiddleHighProcessFormIDCountPatchSite, sizeof(kMiddleHighProcessFormIDCountExpectedBytes), kGroupSavePerformanceRuntime},
+    {kMiddleHighProcessFormIDNodeAllocPatchSite, sizeof(kMiddleHighProcessFormIDNodeAllocExpectedBytes), kGroupSavePerformanceRuntime},
+    {kKnownEffectsCountPatchSite, sizeof(kKnownEffectsCountExpectedBytes), kGroupSavePerformanceRuntime},
+    {kActorRelationshipDispositionFirstPatchSite, sizeof(kActorRelationshipDispositionFirstLoopExpectedBytes), kGroupSavePerformanceRuntime},
+    {kActorRelationshipDispositionSecondPatchSite, sizeof(kActorRelationshipDispositionSecondLoopExpectedBytes), kGroupSavePerformanceRuntime},
+    {kTESFileNextRecordAdvancePatchSite, sizeof(kTESFileNextRecordAdvanceExpectedBytes), kGroupSavePerformanceRuntime},
+    {kTESFileGetNextChunkAdvancePatchSite, sizeof(kTESFileGetNextChunkAdvanceExpectedBytes), kGroupSavePerformanceRuntime},
+    {kTESFileCompressedInputBoundsPatchSite, sizeof(kTESFileCompressedInputBoundsExpectedBytes), kGroupSavePerformanceRuntime},
+    {kTESFileInflatedSizePatchSite, sizeof(kTESFileInflatedSizeExpectedBytes), kGroupSavePerformanceRuntime},
+    {kTESFileInflateInitCleanupPatchSite, sizeof(kTESFileInflateInitCleanupExpectedBytes), kGroupSavePerformanceRuntime},
+    {kTESFileDecompressedRecordSizePatchSite, sizeof(kTESFileDecompressedRecordSizeExpectedBytes), kGroupSavePerformanceRuntime},
+    {kTESFileDecompressedRecordAllocPatchSite, 5, kGroupSavePerformanceRuntime},
+    {kTESFileLoadChunkHeaderCompressedTailPatchSite, sizeof(kTESFileLoadChunkHeaderCompressedTailExpectedBytes), kGroupSavePerformanceRuntime},
+    {kTESFileGetChunkDataTruncatedCopyPatchSite, sizeof(kTESFileGetChunkDataTruncatedCopyExpectedBytes), kGroupSavePerformanceRuntime},
+    {kTESFileGetChunkDataFullCopyPatchSite, sizeof(kTESFileGetChunkDataFullCopyExpectedBytes), kGroupSavePerformanceRuntime},
+    {kTESFileJumpToRecordValidatePatchSite, sizeof(kTESFileJumpToRecordValidateExpectedBytes), kGroupSavePerformanceRuntime},
+    {kTESFileNextGroupPatchSite, sizeof(kTESFileNextGroupExpectedBytes), kGroupSavePerformanceRuntime},
+    {kTESFormCompressRecordTempAllocPatchSite, sizeof(kTESFormCompressRecordTempAllocExpectedBytes), kGroupSavePerformanceRuntime},
+    {kTESFormCompressRecordDeflateErrorCleanupPatchSite, sizeof(kTESFormCompressRecordDeflateErrorCleanupExpectedBytes), kGroupSavePerformanceRuntime},
+    {kTESFormCompressRecordFinalAllocPatchSite, sizeof(kTESFormCompressRecordFinalAllocExpectedBytes), kGroupSavePerformanceRuntime},
+    {kTESWorldSpaceLoadOFSTPatchSite, sizeof(kTESWorldSpaceLoadOFSTExpectedBytes), kGroupWorldspaceOffsets},
+    {kTESWorldSpaceFindCellOffsetPatchSite, sizeof(kTESWorldSpaceFindCellOffsetExpectedBytes), kGroupWorldspaceOffsets},
+    {kTESWorldSpaceRebuildAllocPatchSite, sizeof(kTESWorldSpaceRebuildAllocExpectedBytes), kGroupWorldspaceOffsets},
+    {kTESWorldSpacePostFixupOffsetWritePatchSite, sizeof(kTESWorldSpacePostFixupOffsetWriteExpectedBytes), kGroupWorldspaceOffsets},
+    {kTESWorldSpacePostFixupOffsetCommitPatchSite, sizeof(kTESWorldSpacePostFixupOffsetCommitExpectedBytes), kGroupWorldspaceOffsets},
+    {kTESWorldSpacePostFixupOffsetReadPatchSite, sizeof(kTESWorldSpacePostFixupOffsetReadExpectedBytes), kGroupWorldspaceOffsets},
+    {kLoadingTextureWaitPatchSite, 5, kGroupLoadingWait},
+    {kLoadingTextureWaitPatchSite + 5, 5, kGroupLoadingWait},
+    {kLoadingTextureWaitPatchSite + 10, sizeof(kLoadingTextureWaitExpectedBytes) - 10, kGroupLoadingWait},
+    {kLoadGameStartTickPatchSite, sizeof(kLoadGameStartTickExpectedBytes), kGroupLoadTick},
+    {kWorldspaceMessageDelayPatchSite, 5, kGroupMessageTick},
+    {kWorldspaceMessageDelayPatchSite + 5, 5, kGroupMessageTick},
+    {kWorldspaceMessageDelayPatchSite + 10, sizeof(kWorldspaceMessageDelayExpectedBytes) - 10, kGroupMessageTick},
+    {kActorAnimUpdatePreSamplePatchSite, 5, kGroupActorAnimationClock},
+    {kActorAnimUpdatePreSamplePatchSite + 5, sizeof(kActorAnimPreSamplePatchExpectedBytes) - 5, kGroupActorAnimationClock},
+    {kActorAnimUpdateClockPatchSite, 5, kGroupActorAnimationClock},
+};
+struct PatchGroupResult { PatchGroupState state; unsigned writes; };
+static PatchGroupResult s_patchResults[kPatchGroupCount] = {};
+static UInt8 s_patchOriginalWrites[_countof(s_patchWriteWindows)][mef::PatchTransaction::MaxBytes] = {};
+static bool s_patchOriginalCaptured[_countof(s_patchWriteWindows)] = {};
+static int s_activePatchGroup = -1;
+static bool s_patchAttempted = false;
+static bool s_disableRenderOptimizations = false;
+static bool s_patchLoadResult = false;
+static HMODULE s_patchResidentModule = NULL;
+static bool PatchGroupSelected(PatchGroupId group)
+{ return s_activePatchGroup < 0 || s_activePatchGroup == group; }
+static bool StageSelectedWrite(UInt32 address, const void* bytes, UInt32 length)
+{
+    if (s_activePatchGroup >= 0)
+    {
+        const PatchWriteWindow* window = NULL;
+        for (const auto& entry : s_patchWriteWindows)
+            if (entry.address == address && entry.length == length) { window = &entry; break; }
+        if (!window) { Log("unregistered write %08X length=%u", address, length); return false; }
+        if (!PatchGroupSelected(window->group)) return true;
+        const unsigned index = (unsigned)(window - s_patchWriteWindows);
+        if (!s_patchOriginalCaptured[index] || !CanReadMemory(address, length) ||
+            std::memcmp((void*)address, s_patchOriginalWrites[index], length) != 0)
+        { Log("owned write changed after validation at %08X", address); return false; }
+    }
+    return s_patchTransaction && s_patchTransaction->Queue(address, bytes, length);
+}
