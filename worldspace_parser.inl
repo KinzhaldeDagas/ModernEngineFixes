@@ -486,6 +486,27 @@
 		return true;
 	}
 
+	static bool __stdcall CheckedTESFileHeaderOnlyAdvance(UInt8* file)
+	{
+		if (!file)
+			return false;
+
+		const UInt32 fileSize = *(UInt32*)(file + 0x258);
+		const UInt32 currentOffset = *(UInt32*)(file + 0x25C);
+		if (currentOffset > fileSize || fileSize - currentOffset < 0x14)
+		{
+			*(UInt32*)(file + 0x25C) = fileSize;
+			++s_rejectedTESFileRecordAdvances;
+			if (s_rejectedTESFileRecordAdvances <= 16)
+				Log("rejected TESFile_NextRecord header-only advance file=%08X current=%u fileSize=%u",
+					(UInt32)file, currentOffset, fileSize);
+			return false;
+		}
+
+		*(UInt32*)(file + 0x25C) = currentOffset + 0x14;
+		return true;
+	}
+
 	static bool __stdcall CheckedTESFileGetNextChunkAdvance(UInt8* file, UInt32 recordLength)
 	{
 		if (!file)
@@ -507,6 +528,24 @@
 			{
 				nextOffset = currentOffset + chunkLength + 6;
 				valid = nextOffset >= currentOffset;
+				if (valid && nextOffset < recordLength)
+				{
+					// A next chunk needs its complete six-byte header within the
+					// declared payload. Uncompressed reads also need the entire
+					// record to fit the physical file before seeking into it.
+					valid = recordLength - nextOffset >= 6;
+					const bool compressed =
+						*(UInt32*)(file + 0x23C) != *(UInt32*)kTESRecordTypeGRUPAddr &&
+						(*(UInt32*)(file + 0x244) & 0x40000) != 0;
+					if (valid && !compressed)
+					{
+						const UInt32 fileSize = *(UInt32*)(file + 0x258);
+						const UInt32 recordOffset = *(UInt32*)(file + 0x25C);
+						valid = recordOffset <= fileSize &&
+							fileSize - recordOffset >= 0x14 &&
+							recordLength <= fileSize - recordOffset - 0x14;
+					}
+				}
 			}
 		}
 
@@ -527,6 +566,29 @@
 
 		*(UInt32*)(file + 0x260) = nextOffset;
 		return nextOffset < recordLength;
+	}
+
+	static bool __stdcall ValidateTESFileUncompressedChunkHeaderSpan(UInt8* file)
+	{
+		if (!file)
+			return false;
+
+		const UInt32 recordOffset = *(UInt32*)(file + 0x25C);
+		const UInt32 fileSize = *(UInt32*)(file + 0x258);
+		if (recordOffset > fileSize || fileSize - recordOffset < 0x14)
+			return false;
+
+		UInt32 payloadLength = *(UInt32*)(file + 0x240);
+		if (*(UInt32*)(file + 0x23C) == *(UInt32*)kTESRecordTypeGRUPAddr)
+		{
+			if (payloadLength < 0x14)
+				return false;
+			payloadLength -= 0x14;
+		}
+
+		const UInt32 chunkOffset = *(UInt32*)(file + 0x260);
+		return payloadLength <= fileSize - recordOffset - 0x14 &&
+			chunkOffset <= payloadLength && payloadLength - chunkOffset >= 6;
 	}
 
 	static bool __stdcall ValidateTESFileCompressedInputBounds(UInt8* file)
@@ -787,12 +849,131 @@
 		}
 	}
 
+	// The injected CALL puts its return address above the five native read args.
+	// Copy them in reverse order for the cdecl callback, discard the copies, then
+	// pop the injected return and original args with ret 14h.
+	static __declspec(naked) void TESFileRecordHeaderExactReadPatch()
+	{
+		__asm
+		{
+			push	dword ptr [esp + 14h]
+			push	dword ptr [esp + 14h]
+			push	dword ptr [esp + 14h]
+			push	dword ptr [esp + 14h]
+			push	dword ptr [esp + 14h]
+			call	edx
+			add		esp, 14h
+			cmp		eax, 14h
+			sete	al
+			movzx	eax, al
+			ret		14h
+		}
+	}
+
+	static __declspec(naked) void TESFileChunkHeaderExactReadPatch()
+	{
+		__asm
+		{
+			push	dword ptr [esp + 14h]
+			push	dword ptr [esp + 14h]
+			push	dword ptr [esp + 14h]
+			push	dword ptr [esp + 14h]
+			push	dword ptr [esp + 14h]
+			call	eax
+			add		esp, 14h
+			cmp		eax, 6
+			sete	al
+			movzx	eax, al
+			ret		14h
+		}
+	}
+
+	static __declspec(naked) void TESFileUncompressedChunkHeaderBoundsPatch()
+	{
+		__asm
+		{
+			push	esi
+			call	ValidateTESFileUncompressedChunkHeaderSpan
+			test	al, al
+			jz		invalid
+
+			mov		eax, [esi + 10h]
+			push	1
+			mov		edx, 00450F44h
+			jmp		edx
+
+		invalid:
+			mov		eax, 00450F65h
+			jmp		eax
+		}
+	}
+
+	// Both native callers discarded a failed chunk-header/next-chunk result.
+	// Redirect their injected return to the corresponding existing failure exit.
+	static __declspec(naked) void TESFileNextChunkHeaderResultPatch()
+	{
+		__asm
+		{
+			mov		eax, 00450F10h
+			call	eax
+			test	al, al
+			jnz		succeeded
+			mov		dword ptr [esp], 0044FEE4h
+		succeeded:
+			ret
+		}
+	}
+
+	static __declspec(naked) void TESFileExtendedChunkNextResultPatch()
+	{
+		__asm
+		{
+			mov		eax, 0044FEB0h
+			call	eax
+			test	al, al
+			jnz		succeeded
+			mov		dword ptr [esp], 00450F65h
+		succeeded:
+			ret
+		}
+	}
+
 	static __declspec(naked) void TESFileNextRecordAdvancePatch()
 	{
 		__asm
 		{
 			push	esi
 			call	CheckedTESFileNextRecordAdvance
+			test	al, al
+			jz		stop
+
+			mov		eax, 00451342h
+			jmp		eax
+
+		stop:
+			mov		eax, 00451350h
+			jmp		eax
+		}
+	}
+
+	static __declspec(naked) void TESFileNextRecordDispatchPatch()
+	{
+		__asm
+		{
+			mov		eax, [esi + 23Ch]
+			mov		edx, 0B05E20h
+			cmp		eax, [edx]
+			jz		headerOnly
+			mov		edx, 0B06138h
+			cmp		eax, [edx]
+			jz		headerOnly
+
+			mov		eax, 0045132Ah
+			jmp		eax
+
+		headerOnly:
+			push	esi
+			call	CheckedTESFileHeaderOnlyAdvance
 			test	al, al
 			jz		stop
 

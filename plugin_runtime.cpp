@@ -10,6 +10,7 @@
 #include <cstdlib>
 #include <cerrno>
 #include <new>
+#include <memory>
 #include <cstddef>
 #include <cstdio>
 #include <cstring>
@@ -46,7 +47,6 @@ namespace
 	#include "save_buffers.inl"
 	#include "archive_fixes.inl"
 	#include "compatibility.inl"
-	#include "actor_guards.inl"
 	#include "worldspace_parser.inl"
 	#include "timing_fixes.inl"
 	#include "plugin_settings.inl"

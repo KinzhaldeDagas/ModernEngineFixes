@@ -61,6 +61,50 @@
 				kBSSimpleListPushFrontAllocFailureBranchSite,
 				kBSSimpleListPushFrontAllocFailureExpectedBytes,
 				sizeof(kBSSimpleListPushFrontAllocFailureExpectedBytes))) &
+			(!PatchGroupSelected(kGroupListAllocation) || ValidateDecodeBytes("TESFile open-group link publication",
+				kTESFileUpdateGroupsLinkPatchSite,
+				kTESFileUpdateGroupsLinkExpectedBytes,
+				sizeof(kTESFileUpdateGroupsLinkExpectedBytes))) &
+			(!PatchGroupSelected(kGroupListAllocation) || ValidateDecodeBytes("TESFile group-list prepend entry",
+				kBSSimpleListPushFrontAddr,
+				kBSSimpleListPushFrontEntryExpectedBytes,
+				sizeof(kBSSimpleListPushFrontEntryExpectedBytes))) &
+			(!PatchGroupSelected(kGroupListAllocation) || ValidateDecodeBytes("TESFile OpenGroupRecord checked entry",
+				kTESFileOpenGroupRecordPatchSite,
+				kTESFileOpenGroupRecordExpectedBytes,
+				sizeof(kTESFileOpenGroupRecordExpectedBytes))) &
+			(!PatchGroupSelected(kGroupListAllocation) || ValidateDecodeBytes("TESFile OpenGroupRecord continuation",
+				kTESFileOpenGroupRecordContinue,
+				kTESFileOpenGroupRecordContinueExpectedBytes,
+				sizeof(kTESFileOpenGroupRecordContinueExpectedBytes))) &
+			(!PatchGroupSelected(kGroupListAllocation) || ValidateDecodeBytes("TESFile OpenGroupRecord header write",
+				kTESFileOpenGroupWritePatchSite,
+				kTESFileOpenGroupWriteExpectedBytes,
+				sizeof(kTESFileOpenGroupWriteExpectedBytes))) &
+			(!PatchGroupSelected(kGroupListAllocation) || ValidateDecodeBytes("TESFile OpenGroupRecord write failure exit",
+				kTESFileOpenGroupWriteFail,
+				kTESFileOpenGroupWriteFailExpectedBytes,
+				sizeof(kTESFileOpenGroupWriteFailExpectedBytes))) &
+			(!PatchGroupSelected(kGroupListAllocation) || ValidateDecodeBytes("TESFile WriteData entry",
+				kTESFileWriteDataAddr,
+				kTESFileWriteDataEntryExpectedBytes,
+				sizeof(kTESFileWriteDataEntryExpectedBytes))) &
+			(!PatchGroupSelected(kGroupListAllocation) || ValidateDecodeBytes("TESFile PopOpenGroup entry",
+				kTESFilePopOpenGroupAddr,
+				kTESFilePopOpenGroupEntryExpectedBytes,
+				sizeof(kTESFilePopOpenGroupEntryExpectedBytes))) &
+			(!PatchGroupSelected(kGroupListAllocation) || ValidateDecodeBytes("TESObjectCELL SaveFormRecord group call",
+				kTESObjectCellSaveFormRecordGroupPatchSite,
+				kTESObjectCellSaveFormRecordGroupExpectedBytes,
+				sizeof(kTESObjectCellSaveFormRecordGroupExpectedBytes))) &
+			(!PatchGroupSelected(kGroupListAllocation) || ValidateDecodeBytes("TESObjectCELL SaveForm group call",
+				kTESObjectCellSaveFormGroupPatchSite,
+				kTESObjectCellSaveFormGroupExpectedBytes,
+				sizeof(kTESObjectCellSaveFormGroupExpectedBytes))) &
+			(!PatchGroupSelected(kGroupListAllocation) || ValidateDecodeBytes("TESObjectCELL SaveFormRecord failure exit",
+				kTESObjectCellSaveFormRecordFail,
+				kTESObjectCellSaveFormRecordFailExpectedBytes,
+				sizeof(kTESObjectCellSaveFormRecordFailExpectedBytes))) &
 			(!PatchGroupSelected(kGroupEffectListAllocation) || ValidateDecodeBytes("EffectSetting filtered-list head allocation",
 				kEffectSettingFilteredListHeadAllocPatchSite,
 				kEffectSettingFilteredListHeadAllocExpectedBytes,
@@ -531,10 +575,34 @@
 					kCompressedArchiveRefillPatchSite,
 					kCompressedArchiveRefillExpectedBytes,
 					sizeof(kCompressedArchiveRefillExpectedBytes))))) &
+			(!PatchGroupSelected(kGroupSavePerformanceRuntime) || ValidateDecodeBytes("TESFile record-header exact read",
+				kTESFileRecordHeaderExactReadPatchSite,
+				kTESFileRecordHeaderExactReadExpectedBytes,
+				sizeof(kTESFileRecordHeaderExactReadExpectedBytes))) &
+			(!PatchGroupSelected(kGroupSavePerformanceRuntime) || ValidateDecodeBytes("TESFile chunk-header exact read",
+				kTESFileChunkHeaderExactReadPatchSite,
+				kTESFileChunkHeaderExactReadExpectedBytes,
+				sizeof(kTESFileChunkHeaderExactReadExpectedBytes))) &
+			(!PatchGroupSelected(kGroupSavePerformanceRuntime) || ValidateDecodeBytes("TESFile uncompressed chunk-header span",
+				kTESFileUncompressedChunkHeaderBoundsPatchSite,
+				kTESFileUncompressedChunkHeaderBoundsExpectedBytes,
+				sizeof(kTESFileUncompressedChunkHeaderBoundsExpectedBytes))) &
+			(!PatchGroupSelected(kGroupSavePerformanceRuntime) || ValidateDecodeBytes("TESFile next-chunk header result",
+				kTESFileNextChunkHeaderResultPatchSite,
+				kTESFileNextChunkHeaderResultExpectedBytes,
+				sizeof(kTESFileNextChunkHeaderResultExpectedBytes))) &
+			(!PatchGroupSelected(kGroupSavePerformanceRuntime) || ValidateDecodeBytes("TESFile extended-chunk next result",
+				kTESFileExtendedChunkNextResultPatchSite,
+				kTESFileExtendedChunkNextResultExpectedBytes,
+				sizeof(kTESFileExtendedChunkNextResultExpectedBytes))) &
 			(!PatchGroupSelected(kGroupSavePerformanceRuntime) || ValidateDecodeBytes("TESFile_NextRecord advance",
 				kTESFileNextRecordAdvancePatchSite,
 				kTESFileNextRecordAdvanceExpectedBytes,
 				sizeof(kTESFileNextRecordAdvanceExpectedBytes))) &
+			(!PatchGroupSelected(kGroupSavePerformanceRuntime) || ValidateDecodeBytes("TESFile_NextRecord dispatch",
+				kTESFileNextRecordDispatchPatchSite,
+				kTESFileNextRecordDispatchExpectedBytes,
+				sizeof(kTESFileNextRecordDispatchExpectedBytes))) &
 			(!PatchGroupSelected(kGroupSavePerformanceRuntime) || ValidateDecodeBytes("TESFile_GetNextChunk advance",
 				kTESFileGetNextChunkAdvancePatchSite,
 				kTESFileGetNextChunkAdvanceExpectedBytes,
@@ -663,17 +731,11 @@
 				sizeof(kNiControllerSequenceUpdateExpectedBytes))) ;
 	}
 
-	static TexturePalettePatchState texturePaletteState = (TexturePalettePatchState)-1;
-
 	static ActorAnimPreSamplePatchState actorAnimPreSampleState = (ActorAnimPreSamplePatchState)-1;
 	static ActorAnimClockPatchState actorAnimClockPatchState = (ActorAnimClockPatchState)-1;
 	static TESWorldSpaceOFSTPatchState worldspaceOFSTPatchState = (TESWorldSpaceOFSTPatchState)-1;
     static bool ValidateSelectedPatchGroup()
     {
-        if (PatchGroupSelected(kGroupTexturePaletteGuard)) {
-            texturePaletteState = GetTexturePalettePatchState();
-            if (texturePaletteState == kTexturePalettePatchMismatch) return false;
-        }
         if (PatchGroupSelected(kGroupActorAnimationClock)) {
             actorAnimPreSampleState = GetActorAnimPreSamplePatchState();
             actorAnimClockPatchState = GetActorAnimClockPatchState();
@@ -796,6 +858,33 @@
 				kBSSimpleListPushFrontAllocFailureBranchSite);
 			return false;
 		}
+		if (!WriteRelJump(kTESFileUpdateGroupsLinkPatchSite,
+				(UInt32)&TESFileUpdateGroupsLinkPatch,
+				sizeof(kTESFileUpdateGroupsLinkExpectedBytes)))
+		{
+			Log("failed to write TESFile open-group link guard at %08X",
+				kTESFileUpdateGroupsLinkPatchSite);
+			return false;
+		}
+		if (!WriteRelJump(kTESFileOpenGroupRecordPatchSite,
+				(UInt32)&TESFileOpenGroupRecordPatch,
+				sizeof(kTESFileOpenGroupRecordExpectedBytes)) ||
+			!WriteRelCall(kTESFileOpenGroupWritePatchSite,
+				(UInt32)&TESFileOpenGroupWriteResultPatch) ||
+			!WriteRelJump(kTESObjectCellSaveFormRecordGroupPatchSite,
+				(UInt32)&TESObjectCellSaveFormRecordGroupPatch,
+				sizeof(kTESObjectCellSaveFormRecordGroupExpectedBytes)) ||
+			!WriteRelJump(kTESObjectCellSaveFormGroupPatchSite,
+				(UInt32)&TESObjectCellSaveFormGroupPatch,
+				sizeof(kTESObjectCellSaveFormGroupExpectedBytes)))
+		{
+			Log("failed to write TESFile cell group guards at %08X/%08X/%08X/%08X",
+				kTESFileOpenGroupRecordPatchSite,
+				kTESFileOpenGroupWritePatchSite,
+				kTESObjectCellSaveFormRecordGroupPatchSite,
+				kTESObjectCellSaveFormGroupPatchSite);
+			return false;
+		}
 
 		if (!WriteRelCall(kEffectSettingFilteredListHeadAllocPatchSite,
 				(UInt32)&EffectSettingFilteredListHeadAllocPatch) ||
@@ -806,13 +895,6 @@
 			Log("failed to write EffectSetting filtered-list allocation guards at %08X/%08X",
 				kEffectSettingFilteredListHeadAllocPatchSite,
 				kEffectSettingFilteredListNodeAllocFailureBranchSite);
-			return false;
-		}
-
-		if (texturePaletteState == kTexturePalettePatchNeedsInstall &&
-			!WriteRelJump(kTexturePaletteUnderscorePatchSite, (UInt32)&TexturePaletteUnderscorePatch, sizeof(kTexturePaletteExpectedBytes)))
-		{
-			Log("failed to write relative jump at %08X", kTexturePaletteUnderscorePatchSite);
 			return false;
 		}
 
@@ -1140,15 +1222,44 @@
 			return false;
 		}
 
+		if (!WriteRelCall(kTESFileRecordHeaderExactReadPatchSite,
+				(UInt32)&TESFileRecordHeaderExactReadPatch) ||
+			!WriteRelCall(kTESFileChunkHeaderExactReadPatchSite,
+				(UInt32)&TESFileChunkHeaderExactReadPatch) ||
+			!WriteRelCall(kTESFileNextChunkHeaderResultPatchSite,
+				(UInt32)&TESFileNextChunkHeaderResultPatch) ||
+			!WriteRelCall(kTESFileExtendedChunkNextResultPatchSite,
+				(UInt32)&TESFileExtendedChunkNextResultPatch))
+		{
+			Log("failed to write TESFile header read/result guards at %08X/%08X/%08X/%08X",
+				kTESFileRecordHeaderExactReadPatchSite,
+				kTESFileChunkHeaderExactReadPatchSite,
+				kTESFileNextChunkHeaderResultPatchSite,
+				kTESFileExtendedChunkNextResultPatchSite);
+			return false;
+		}
+		if (!WriteRelJump(kTESFileUncompressedChunkHeaderBoundsPatchSite,
+				(UInt32)&TESFileUncompressedChunkHeaderBoundsPatch,
+				sizeof(kTESFileUncompressedChunkHeaderBoundsExpectedBytes)))
+		{
+			Log("failed to write TESFile uncompressed chunk-header span guard at %08X",
+				kTESFileUncompressedChunkHeaderBoundsPatchSite);
+			return false;
+		}
+
 		if (!WriteRelJump(kTESFileNextRecordAdvancePatchSite,
 				(UInt32)&TESFileNextRecordAdvancePatch,
 				sizeof(kTESFileNextRecordAdvanceExpectedBytes)) ||
+			!WriteRelJump(kTESFileNextRecordDispatchPatchSite,
+				(UInt32)&TESFileNextRecordDispatchPatch,
+				sizeof(kTESFileNextRecordDispatchExpectedBytes)) ||
 			!WriteRelJump(kTESFileGetNextChunkAdvancePatchSite,
 				(UInt32)&TESFileGetNextChunkAdvancePatch,
 				sizeof(kTESFileGetNextChunkAdvanceExpectedBytes)))
 		{
-			Log("failed to write TESFile parser guards at %08X/%08X",
+			Log("failed to write TESFile parser guards at %08X/%08X/%08X",
 				kTESFileNextRecordAdvancePatchSite,
+				kTESFileNextRecordDispatchPatchSite,
 				kTESFileGetNextChunkAdvancePatchSite);
 			return false;
 		}

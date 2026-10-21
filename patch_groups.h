@@ -7,7 +7,6 @@ enum PatchGroupId
     kGroupThreadHandle,
     kGroupListAllocation,
     kGroupEffectListAllocation,
-    kGroupTexturePaletteGuard,
     kGroupActorAnimationClock,
     kGroupWorldspaceOffsets,
     kGroupLoadingWait,
@@ -18,7 +17,7 @@ enum PatchGroupId
     kPatchGroupCount
 };
 enum class PatchGroupState { Pending, Disabled, Installed, AlreadyInstalledByMEF,
-    CoveredByVerifiedEquivalent, DeferredToExternalPolicy, SkippedConflict, SkippedDependency,
+    DeferredToExternalPolicy, SkippedConflict, SkippedDependency,
     FailedRolledBack, FatalRetained };
 // Each descriptor uses PatchGroupEnabled, ValidateSelectedPatchGroup and
 // StageSelectedPatchGroup with its selected ID. All validators and writes are
@@ -29,7 +28,6 @@ static const PatchGroupDescriptor s_patchGroups[] = {
     {"ThreadHandle", -1, "native engine ABI; static or lazily allocated feature state"},
     {"ListAllocation", -1, "native engine ABI; static or lazily allocated feature state"},
     {"EffectListAllocation", -1, "native engine ABI; static or lazily allocated feature state"},
-    {"TexturePaletteGuard", -1, "native engine ABI; static or lazily allocated feature state"},
     {"ActorAnimationClock", -1, "native engine ABI; static or lazily allocated feature state"},
     {"WorldspaceOffsets", -1, "native engine ABI; static or lazily allocated feature state"},
     {"LoadingWait", -1, "native engine ABI; static or lazily allocated feature state"},
@@ -105,9 +103,13 @@ static const PatchWriteWindow s_patchWriteWindows[] = {
     {kMainThreadHandlePatchSite, sizeof(kMainThreadHandleExpectedBytes), kGroupThreadHandle},
     {kBSSimpleListInsertSortedAllocFailureBranchSite, sizeof(kBSSimpleListInsertSortedAllocFailureReplacementBytes), kGroupListAllocation},
     {kBSSimpleListPushFrontAllocFailureBranchSite, sizeof(kBSSimpleListPushFrontAllocFailureReplacementBytes), kGroupListAllocation},
+    {kTESFileUpdateGroupsLinkPatchSite, sizeof(kTESFileUpdateGroupsLinkExpectedBytes), kGroupListAllocation},
+    {kTESFileOpenGroupRecordPatchSite, sizeof(kTESFileOpenGroupRecordExpectedBytes), kGroupListAllocation},
+    {kTESFileOpenGroupWritePatchSite, sizeof(kTESFileOpenGroupWriteExpectedBytes), kGroupListAllocation},
+    {kTESObjectCellSaveFormRecordGroupPatchSite, sizeof(kTESObjectCellSaveFormRecordGroupExpectedBytes), kGroupListAllocation},
+    {kTESObjectCellSaveFormGroupPatchSite, sizeof(kTESObjectCellSaveFormGroupExpectedBytes), kGroupListAllocation},
     {kEffectSettingFilteredListHeadAllocPatchSite, 5, kGroupEffectListAllocation},
     {kEffectSettingFilteredListNodeAllocFailureBranchSite, sizeof(kEffectSettingFilteredListNodeAllocFailureReplacementBytes), kGroupEffectListAllocation},
-    {kTexturePaletteUnderscorePatchSite, sizeof(kTexturePaletteExpectedBytes), kGroupTexturePaletteGuard},
     {kSaveLoadCreateBufferPatchSite, sizeof(kSaveLoadCreateBufferExpectedBytes), kGroupSavePerformanceRuntime},
     {kSaveLoadFreeBufferPatchSite, sizeof(kSaveLoadFreeBufferExpectedBytes), kGroupSavePerformanceRuntime},
     {kSaveLoadRawBlobMap54PatchSite, sizeof(kSaveLoadRawBlobMap54ExpectedBytes), kGroupSavePerformanceRuntime},
@@ -159,7 +161,13 @@ static const PatchWriteWindow s_patchWriteWindows[] = {
     {kKnownEffectsCountPatchSite, sizeof(kKnownEffectsCountExpectedBytes), kGroupSavePerformanceRuntime},
     {kActorRelationshipDispositionFirstPatchSite, sizeof(kActorRelationshipDispositionFirstLoopExpectedBytes), kGroupSavePerformanceRuntime},
     {kActorRelationshipDispositionSecondPatchSite, sizeof(kActorRelationshipDispositionSecondLoopExpectedBytes), kGroupSavePerformanceRuntime},
+    {kTESFileRecordHeaderExactReadPatchSite, sizeof(kTESFileRecordHeaderExactReadExpectedBytes), kGroupSavePerformanceRuntime},
+    {kTESFileChunkHeaderExactReadPatchSite, sizeof(kTESFileChunkHeaderExactReadExpectedBytes), kGroupSavePerformanceRuntime},
+    {kTESFileUncompressedChunkHeaderBoundsPatchSite, sizeof(kTESFileUncompressedChunkHeaderBoundsExpectedBytes), kGroupSavePerformanceRuntime},
+    {kTESFileNextChunkHeaderResultPatchSite, sizeof(kTESFileNextChunkHeaderResultExpectedBytes), kGroupSavePerformanceRuntime},
+    {kTESFileExtendedChunkNextResultPatchSite, sizeof(kTESFileExtendedChunkNextResultExpectedBytes), kGroupSavePerformanceRuntime},
     {kTESFileNextRecordAdvancePatchSite, sizeof(kTESFileNextRecordAdvanceExpectedBytes), kGroupSavePerformanceRuntime},
+    {kTESFileNextRecordDispatchPatchSite, sizeof(kTESFileNextRecordDispatchExpectedBytes), kGroupSavePerformanceRuntime},
     {kTESFileGetNextChunkAdvancePatchSite, sizeof(kTESFileGetNextChunkAdvanceExpectedBytes), kGroupSavePerformanceRuntime},
     {kTESFileCompressedInputBoundsPatchSite, sizeof(kTESFileCompressedInputBoundsExpectedBytes), kGroupSavePerformanceRuntime},
     {kTESFileInflatedSizePatchSite, sizeof(kTESFileInflatedSizeExpectedBytes), kGroupSavePerformanceRuntime},

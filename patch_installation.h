@@ -1,4 +1,7 @@
 #pragma once
+static ScopedPatchTransaction* CreatePatchScope(mef::PatchTransaction::ProtectFn protect,
+    mef::PatchTransaction::FlushFn flush)
+{ return new (std::nothrow) ScopedPatchTransaction(protect, flush); }
 struct PatchInstallServices
 {
     mef::PatchTransaction::ProtectFn protect;
@@ -6,6 +9,8 @@ struct PatchInstallServices
     BOOL (WINAPI* retain)(DWORD, LPCSTR, HMODULE*);
     BOOL (WINAPI* release)(HMODULE);
     bool (*validateImage)();
+    ScopedPatchTransaction* (*createScope)(mef::PatchTransaction::ProtectFn,
+        mef::PatchTransaction::FlushFn) = CreatePatchScope;
 };
 static bool ValidateProcessImage()
 { return mef::IsSupportedEngineImage(GetModuleHandleA(nullptr), 0x00400000); }
@@ -20,7 +25,6 @@ static const char* PatchStateName(PatchGroupState state)
     case PatchGroupState::Disabled: return "Disabled";
     case PatchGroupState::Installed: return "Installed";
     case PatchGroupState::AlreadyInstalledByMEF: return "AlreadyInstalledByMEF";
-    case PatchGroupState::CoveredByVerifiedEquivalent: return "CoveredByVerifiedEquivalent";
     case PatchGroupState::DeferredToExternalPolicy: return "DeferredToExternalPolicy";
     case PatchGroupState::SkippedConflict: return "SkippedConflict";
     case PatchGroupState::SkippedDependency: return "SkippedDependency";
@@ -38,8 +42,7 @@ static bool PatchGroupEnabled(PatchGroupId group)
 }
 static bool PatchGroupActive(PatchGroupState state)
 {
-    return state == PatchGroupState::Installed || state == PatchGroupState::AlreadyInstalledByMEF ||
-        state == PatchGroupState::CoveredByVerifiedEquivalent;
+    return state == PatchGroupState::Installed || state == PatchGroupState::AlreadyInstalledByMEF;
 }
 static bool CheckPatchRegistry()
 {
@@ -82,23 +85,27 @@ static bool CaptureSelectedWriteContracts()
 static bool CommitSelectedPatchGroup(const PatchInstallServices& services)
 {
     PatchGroupResult& result = s_patchResults[s_activePatchGroup];
-    ScopedPatchTransaction scope(services.protect, services.flush);
+    // The fixed-capacity plan is ~266 KiB. Keep it off the loader's stack and
+    // reject allocation failure before staging, retaining or changing pages.
+    std::unique_ptr<ScopedPatchTransaction> scope(services.createScope(services.protect, services.flush));
+    if (!scope)
+    {
+        result.state = PatchGroupState::FailedRolledBack;
+        Log("group %s skipped: cannot allocate patch transaction", s_patchGroups[s_activePatchGroup].name);
+        return true; // Independent groups may still succeed; dependents defer.
+    }
     if (!StageSelectedPatchGroup())
     {
         result.state = PatchGroupState::FailedRolledBack; // Staging has not written memory.
-        Log("group %s staging failed: %s", s_patchGroups[s_activePatchGroup].name, scope.transaction.Error());
+        Log("group %s staging failed: %s", s_patchGroups[s_activePatchGroup].name, scope->transaction.Error());
         return true;
     }
-    if (!scope.transaction.WriteCount())
+    if (!scope->transaction.WriteCount())
     {
-        // Texture thunk proves equivalent coverage. An OFST bypass proves only
-        // external policy ownership; it does not provide MEF bounds tracking.
-        const bool equivalent =
-            (s_activePatchGroup == kGroupTexturePaletteGuard && texturePaletteState == kTexturePalettePatchAlreadyGuarded);
+        // An OFST bypass owns policy, not MEF bounds-tracking coverage.
         const bool externalPolicy = s_activePatchGroup == kGroupWorldspaceOffsets &&
             worldspaceOFSTPatchState == kTESWorldSpaceOFSTPatchExternallySkipped;
-        result.state = equivalent ? PatchGroupState::CoveredByVerifiedEquivalent :
-            externalPolicy ? PatchGroupState::DeferredToExternalPolicy : PatchGroupState::Disabled;
+        result.state = externalPolicy ? PatchGroupState::DeferredToExternalPolicy : PatchGroupState::Disabled;
         return true;
     }
     if (!s_patchResidentModule && !services.retain(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS,
@@ -108,10 +115,10 @@ static bool CommitSelectedPatchGroup(const PatchInstallServices& services)
         result.state = PatchGroupState::FailedRolledBack;
         return false;
     }
-    if (!scope.transaction.Commit())
+    if (!scope->transaction.Commit())
     {
-        Log("group %s transaction failed: %s", s_patchGroups[s_activePatchGroup].name, scope.transaction.Error());
-        if (scope.transaction.RollbackIncomplete())
+        Log("group %s transaction failed: %s", s_patchGroups[s_activePatchGroup].name, scope->transaction.Error());
+        if (scope->transaction.RollbackIncomplete())
         {
             result.state = PatchGroupState::FatalRetained;
             s_patchInstallBlocked = true;
@@ -122,7 +129,7 @@ static bool CommitSelectedPatchGroup(const PatchInstallServices& services)
         return true;
     }
     result.state = PatchGroupState::Installed;
-    result.writes = scope.transaction.WriteCount();
+    result.writes = scope->transaction.WriteCount();
     return true;
 }
 static bool InstallPatches(const PatchInstallServices& services = kDefaultPatchInstallServices)
@@ -162,7 +169,7 @@ static bool InstallPatches(const PatchInstallServices& services = kDefaultPatchI
         normal = CommitSelectedPatchGroup(services);
     }
     s_activePatchGroup = -1;
-    unsigned installed = 0, covered = 0, disabled = 0, skipped = 0, failed = 0, writes = 0;
+    unsigned installed = 0, disabled = 0, skipped = 0, failed = 0, writes = 0;
     for (unsigned group = 0; group < kPatchGroupCount; ++group)
     {
         const auto& result = s_patchResults[group];
@@ -171,7 +178,6 @@ static bool InstallPatches(const PatchInstallServices& services = kDefaultPatchI
         switch (result.state)
         {
         case PatchGroupState::Installed: case PatchGroupState::AlreadyInstalledByMEF: ++installed; break;
-        case PatchGroupState::CoveredByVerifiedEquivalent: ++covered; break;
         case PatchGroupState::Disabled: ++disabled; break;
         case PatchGroupState::DeferredToExternalPolicy: case PatchGroupState::SkippedConflict: case PatchGroupState::SkippedDependency: ++skipped; break;
         default: ++failed; break;
@@ -179,10 +185,10 @@ static bool InstallPatches(const PatchInstallServices& services = kDefaultPatchI
     }
     if (!writes && !s_patchInstallBlocked && s_patchResidentModule)
     { services.release(s_patchResidentModule); s_patchResidentModule = NULL; }
-    Log("MEF installation summary: installed=%u equivalent=%u disabled=%u skipped=%u failed=%u committed writes=%u; load=%s",
-        installed, covered, disabled, skipped, failed, writes, normal ? "success" : "failed (see diagnostics)");
+    Log("MEF installation summary: installed=%u disabled=%u skipped=%u failed=%u committed writes=%u; load=%s",
+        installed, disabled, skipped, failed, writes, normal ? "success" : "failed (see diagnostics)");
     if (s_patchInstallBlocked) Log("active coverage uncertain after incomplete rollback; MEF remains resident");
-    else if (!installed) Log("zero MEF patch groups active; verified external coverage=%u", covered);
+    else if (!installed) Log("zero MEF patch groups active");
     s_patchLoadResult = normal;
     return normal;
 }

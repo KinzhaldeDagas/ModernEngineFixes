@@ -332,6 +332,182 @@
 		}
 	}
 
+	// The native void PushFront can return without linking after node OOM.
+	// ESI is the private 24-byte header; EBX points to the embedded list head.
+	static __declspec(naked) void TESFileUpdateGroupsLinkPatch()
+	{
+		__asm
+		{
+			cmp		[ebx], esi
+			jz		linked
+			push	esi
+			mov		eax, 00401F20h
+			call	eax
+			add		esp, 4
+			push	kTESFileUpdateGroupsLinkFail
+			ret
+		linked:
+			mov		ecx, [edi + 10h]
+			test	ecx, ecx
+			push	kTESFileUpdateGroupsLinkContinue
+			ret
+		}
+	}
+
+	typedef void (__thiscall* TESFileGroupPushFrontFn)(UInt8* list, void* item);
+	static bool TryInsertTESFileOpenGroupCore(UInt8* file, const UInt32* source,
+		FormHeapAllocFn allocate, FormHeapFreeFn release, TESFileGroupPushFrontFn pushFront)
+	{
+		if (!file || !source || !*(void**)(file + 0x10))
+			return false;
+
+		UInt8* const header = (UInt8*)allocate(0x18);
+		if (!header)
+			return false;
+
+		pushFront(file + 0x284, header);
+		if (*(void**)(file + 0x284) != header)
+		{
+			release(header);
+			return false;
+		}
+
+		std::memcpy(header, source, 0x14);
+		return true;
+	}
+
+	static bool __stdcall TryInsertTESFileOpenGroup(UInt8* file, const UInt32* source)
+	{
+		return TryInsertTESFileOpenGroupCore(file, source,
+			(FormHeapAllocFn)kFormHeapAllocAddr,
+			(FormHeapFreeFn)kFormHeapFreeAddr,
+			(TESFileGroupPushFrontFn)kBSSimpleListPushFrontAddr);
+	}
+
+	// Replace the entry through the native PushGroup call. The successful path
+	// resumes OpenGroupRecord with its saved ESI and original argument intact.
+	static __declspec(naked) void TESFileOpenGroupRecordPatch()
+	{
+		__asm
+		{
+			push	esi
+			mov		esi, ecx
+			mov		eax, [esp + 8]
+			push	eax
+			push	esi
+			call	TryInsertTESFileOpenGroup
+			test	al, al
+			jz		failed
+			mov		eax, 00450201h
+			jmp		eax
+
+		failed:
+			pop		esi
+			xor		eax, eax
+			ret		4
+		}
+	}
+
+	typedef UInt32 (__thiscall* TESFileWriteDataFn)(UInt8* file, const void* data, UInt32 length);
+	typedef void (__thiscall* TESFilePopOpenGroupFn)(UInt8* file);
+	template <typename Write, typename Pop>
+	static bool TryWriteTESFileOpenGroupCore(UInt8* file, const void* header, Write write, Pop pop)
+	{
+		if (!file)
+			return false;
+		if (!header || write(file, header, 0x14) != 0)
+		{
+			pop(file);
+			return false;
+		}
+		return true;
+	}
+
+	static bool __stdcall TryWriteTESFileOpenGroup(UInt8* file, const void* header)
+	{
+		return TryWriteTESFileOpenGroupCore(file, header,
+			(TESFileWriteDataFn)kTESFileWriteDataAddr,
+			(TESFilePopOpenGroupFn)kTESFilePopOpenGroupAddr);
+	}
+
+	// This CALL replaces native WriteData. The injected return precedes the two
+	// original arguments; the helper consumes copies, then ret 8 removes originals.
+	static __declspec(naked) void TESFileOpenGroupWriteResultPatch()
+	{
+		__asm
+		{
+			push	dword ptr [esp + 4]
+			push	esi
+			call	TryWriteTESFileOpenGroup
+			test	al, al
+			jnz		done
+			mov		dword ptr [esp], 00450248h
+		done:
+			xor		eax, eax
+			ret		8
+		}
+	}
+
+	// A cell's child serialization requires a newly published group head.
+	// This JMP replaces the native CALL, so the original header argument is
+	// still on the stack; copy it for the nested call and remove the original.
+	static __declspec(naked) void TESObjectCellSaveFormRecordGroupPatch()
+	{
+		__asm
+		{
+			cmp		dword ptr [ebx + 10h], 0
+			jz		noStream
+			push	edi
+			mov		edi, [ebx + 284h]
+			push	dword ptr [esp + 4]
+			mov		ecx, ebx
+			mov		eax, 004501F0h
+			call	eax
+			cmp		[ebx + 284h], edi
+			pop		edi
+			lea		esp, [esp + 4]
+			jz		failed
+			mov		eax, 004D3543h
+			jmp		eax
+
+		noStream:
+			lea		esp, [esp + 4]
+		failed:
+			mov		eax, 004D34F7h
+			jmp		eax
+		}
+	}
+
+	static __declspec(naked) void TESObjectCellSaveFormGroupPatch()
+	{
+		__asm
+		{
+			cmp		dword ptr [edi + 10h], 0
+			jz		noStream
+			push	ebx
+			mov		ebx, [edi + 284h]
+			push	dword ptr [esp + 4]
+			mov		ecx, edi
+			mov		eax, 004501F0h
+			call	eax
+			cmp		[edi + 284h], ebx
+			pop		ebx
+			lea		esp, [esp + 4]
+			jz		failed
+			mov		eax, 004D35B8h
+			jmp		eax
+
+		noStream:
+			lea		esp, [esp + 4]
+		failed:
+			pop		edi
+			xor		al, al
+			pop		esi
+			add		esp, 14h
+			ret		4
+		}
+	}
+
 	static __declspec(naked) void TESFileLoadedMastersAllocPatch()
 	{
 		__asm

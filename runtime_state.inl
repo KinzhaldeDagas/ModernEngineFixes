@@ -67,13 +67,6 @@
 	};
 	static SaveBufferScopeTrackingEntry s_saveBufferScopes[kSaveBufferRangeTrackingCapacity];
 
-	enum TexturePalettePatchState
-	{
-		kTexturePalettePatchMismatch = 0,
-		kTexturePalettePatchNeedsInstall,
-		kTexturePalettePatchAlreadyGuarded
-	};
-
 	enum ActorAnimPreSamplePatchState
 	{
 		kActorAnimPreSamplePatchMismatch = 0,

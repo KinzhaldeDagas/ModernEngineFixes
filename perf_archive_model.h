@@ -402,9 +402,13 @@ static bool PerfAMAddModel(UInt8* owner, const char* name, const PerfAMServices&
             }
             if (duplicate || prepared || !tail->data)
             {
-                // Engine allocators may recursively clear/add to the owner.
-                // Both interfaces invalidate scoped keys before any free.
-                if (!PerfAMFindModel(owner, snapshot, &tail, context, service))
+                // The last lookup follows the last engine allocation and may
+                // itself refresh the index through a scratch callback. Its
+                // duplicate/tail result must govern publication: another lookup
+                // here could remove the duplicate after we decided no node was
+                // needed, leaving prepared null for an occupied tail.
+                // No callback occurs between this decision and linking the node.
+                if (!duplicate)
                 {
                     if (tail->data)
                     {

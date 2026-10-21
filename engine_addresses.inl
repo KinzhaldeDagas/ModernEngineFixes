@@ -1874,8 +1874,6 @@
 	static const UInt32 kBinkOpenThreadHandleUseDecodeAddr = 0x00410229;
 	static const UInt32 kBinkOpenResumeThreadUseDecodeAddr = 0x0041028E;
 
-	static const UInt32 kTexturePaletteUnderscorePatchSite = 0x004A26F7;
-
 	static const UInt32 kArchiveRawReadTargetPatchSite = 0x0042C3EF;
 
 	static const UInt32 kArchiveRawReadCountClampPatchSite = 0x0042C439;
@@ -1887,8 +1885,14 @@
 	static const bool kInstallArchiveStreamingGuards = false;
 
 	static const UInt32 kTESFileNextRecordAdvancePatchSite = 0x0045132A;
+	static const UInt32 kTESFileNextRecordDispatchPatchSite = 0x00451314;
 
 	static const UInt32 kTESFileGetNextChunkAdvancePatchSite = 0x0044FECB;
+	static const UInt32 kTESFileRecordHeaderExactReadPatchSite = 0x004500AD;
+	static const UInt32 kTESFileChunkHeaderExactReadPatchSite = 0x00450F5C;
+	static const UInt32 kTESFileUncompressedChunkHeaderBoundsPatchSite = 0x00450F3F;
+	static const UInt32 kTESFileNextChunkHeaderResultPatchSite = 0x0044FF39;
+	static const UInt32 kTESFileExtendedChunkNextResultPatchSite = 0x00450FE3;
 
 	static const UInt32 kTESFileLoadChunkHeaderCompressedTailPatchSite = 0x00450F97;
 
@@ -2036,6 +2040,19 @@
 	static const UInt32 kKFListNodeAllocPatchSite = 0x004358F1;
 
 	static const UInt32 kTESFileUpdateGroupsAllocPatchSite = 0x0045037E;
+	static const UInt32 kBSSimpleListPushFrontAddr = 0x00446CB0;
+	static const UInt32 kTESFileOpenGroupRecordPatchSite = 0x004501F0;
+	static const UInt32 kTESFileOpenGroupRecordContinue = 0x00450201;
+	static const UInt32 kTESFileOpenGroupWritePatchSite = 0x0045023C;
+	static const UInt32 kTESFileOpenGroupWriteFail = 0x00450248;
+	static const UInt32 kTESFileWriteDataAddr = 0x00450190;
+	static const UInt32 kTESFilePopOpenGroupAddr = 0x0044FFA0;
+	static const UInt32 kTESObjectCellSaveFormRecordGroupPatchSite = 0x004D353E;
+	static const UInt32 kTESObjectCellSaveFormRecordFail = 0x004D34F7;
+	static const UInt32 kTESObjectCellSaveFormGroupPatchSite = 0x004D35B3;
+	static const UInt32 kTESFileUpdateGroupsLinkPatchSite = 0x004503B2;
+	static const UInt32 kTESFileUpdateGroupsLinkContinue = 0x004503B7;
+	static const UInt32 kTESFileUpdateGroupsLinkFail = 0x00450427;
 
 	static const UInt32 kTESFileLoadedMastersAllocPatchSite = 0x0044FCBF;
 	static const UInt32 kArchiveMasterListAllocPatchSite = 0x0042F734;
